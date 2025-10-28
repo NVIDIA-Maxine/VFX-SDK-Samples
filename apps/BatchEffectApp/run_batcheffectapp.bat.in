@@ -1,0 +1,6 @@
+SETLOCAL
+SET PATH=%PATH%;@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;
+SET IMAGE_LIST=LeFret_000900.jpg LeFret_001400.jpg LeFret_003400.jpg LeFret_012300.jpg
+BatchEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --effect=ArtifactReduction --out_file=ArtifactReduction_%%04u.png %IMAGE_LIST%
+BatchEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --effect=SuperRes --out_file=SuperRes_%%04u.png --scale=1.5 %IMAGE_LIST%
+BatchEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --effect=Upscale --out_file=Upscale_%%04u.png --scale=1.5 %IMAGE_LIST% 

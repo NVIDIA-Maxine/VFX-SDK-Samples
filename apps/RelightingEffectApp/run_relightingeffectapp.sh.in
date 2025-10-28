@@ -1,0 +1,86 @@
+#!/bin/sh
+
+# Set up the environment so RelightingEffectApp can find the libraries and models
+. ./setup_env.sh
+
+#######################################################################################
+# Use studio lighting on webcam input and display on screen
+if false # change to false to test file I/O
+then
+
+./RelightingEffectApp \
+        --model_dir=$_VFX_MODELS \
+        --in_hdr=vkl_mid.hdr \
+        --webcam \
+        --show \
+        "$@"  # additional command line args
+
+#######################################################################################
+# Use studio lighting with video file in and out and also display on screen, so the lighting can be changed dynamically.
+# However, --show is not needed for offline processing, as --pan=degrees can be used to  specify the lighting angle.
+# Replace input_100_250_frames.mp4 andd output.mp4 with your desired video files.
+else
+
+./RelightingEffectApp \
+        --model_dir=$_VFX_MODELS \
+        --in_hdr=vkl_mid.hdr \
+        --in_file=input_100_250_frames.mp4 \
+        --out_file=output.mp4 \
+        "$@"  # additional command line args
+        
+fi
+
+
+#######################################################################################
+# Note that you can replace the background by specifying --in_bg=bg.jpg or pg.png.
+# You could also specify a solid color background with a hexadecimal color 0xrrggbb.
+# The pan controls will only control the lighting environment, and will not affect the background at all.
+
+#######################################################################################
+# Keyboard Control Legend with --show in interactive mode
+#  ESC or q   quit
+#  , (comma)  adjust pan by -1 degree
+#  . (period) adjust pan by +1 degree
+#  <          adjust pan by -10 degrees
+#  >          adjust pan by +10 degrees
+#  v (lower)  adjust vfov by -10 degrees
+#  V (upper)  adjust vfov by +10 degrees
+#  r          auto-rotate
+#  p or space pause video
+#  f          toggle between showing and not showing the frame rate
+#  i          toggle between showing output and showing input
+#  n          advance to the next HDR for illumination
+#  b          cycle through background mode
+#  z          reset to studio lighting
+#  h          print this help message
+
+
+#######################################################################################
+# Command-line arguments.
+# RelightingEffectApp [args ...]
+#   where args is:
+#   --in_file=<file>            specify input source file (image or video)
+#   --webcam[=(true|false)]     use a webcam as the input, rather than a file
+#   --cam_res=[WWWx]HHH         specify resolution as height or width x height
+#   --out_dir=<dir>             set the output directory
+#   --out_file=<file>           specify an output video file
+#   --in_bg=<file|color>        use the specified file (png or jpg) or color (gray or 0xRRGGBB) for the background
+#   --in_hdr=<file>             specify input HDR file (hdr or exr) or directory, for illumination.
+#   --in_mat=<file>             specify input matte file. Only supported when processing images.
+#                               If not specified, or when processing videos/webcam, AIGS is run
+#   --pan=<num>                 set the initial pan angle, in degrees (default -90)
+#   --vfov=<num>                set the initial vertical field of view, in degrees (default 60)
+#   --autorotate[=(true|false)] automatically rotate the environment
+#   --rotation_rate=<N>         the auto-rotation rate, in degrees per second
+#   --show[=(true|false)]       display images on-screen
+#   --show_mode=<mode>          Options - output, input
+#   --model_dir=<path>          the path to the directory that contains the .trtmodel files
+#   --codec=<fourcc>            the fourcc code for the desired codec (default avc1)
+#   --verbose[=(true|false)]    verbose output
+#   --debug[=(true|false)]      print extra debugging information
+#   --log=<file>                log SDK errors to a file, "stderr" or "" (default stderr)
+#   --log_level=<N>             the desired log level: {0, 1, 2, 3} = {FATAL, ERROR, WARNING, INFO}, respectively (default 1)
+#   --help[=(true|false)]       print this help message
+#   --bg_mode=<n>               0=src 1=srcBlur 2=HDR 3=bgImg 4=bgImgBlur
+
+

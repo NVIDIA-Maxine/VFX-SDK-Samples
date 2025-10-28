@@ -1,0 +1,120 @@
+# a helper script to set up LD_LIBRARY_PATH + PATH
+# for running the sample apps
+
+findpath() {
+    # findpath "descriptive error text" <something-that-must-exist> <locations-to-look>...
+    # used to find a library based on files that should exist in that location
+    err_desc="$1"
+    req_file="$2"
+    shift 2
+    for prefix in "$@"
+    do
+        if [ -e "$prefix/$req_file" ]
+        then
+            echo $prefix
+            return
+        fi
+    done
+    echo "ERROR: Could not find $err_desc" 1>&2
+    exit 1
+}
+
+add_ldlibpath() {
+    if [ -n "$1" ]
+    then
+        case "$LD_LIBRARY_PATH" in
+            *:"$1":* | *:"$1" | "$1":* );;
+            "") export LD_LIBRARY_PATH="$1";;
+            *) export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$1";;
+        esac
+    fi
+}
+
+findfeaturelibpaths() {
+    # findfeaturelibpaths "SDK_ROOT"
+    # Finds all features within SDK_ROOT, and adds SDK_ROOT/features/<feature>/lib for all features
+    sdk_root="$1"
+    
+    if [ -z "$sdk_root" ]; then
+        echo "Error: SDK_ROOT parameter is required" 1>&2
+        return 1
+    fi
+    
+    if [ ! -d "$sdk_root" ]; then
+        echo "Error: SDK_ROOT directory '$sdk_root' does not exist" 1>&2
+        return 1
+    fi
+    
+    features_dir="$sdk_root/features"
+    if [ ! -d "$features_dir" ]; then
+        echo "Warning: Features directory '$features_dir' does not exist" 1>&2
+        return 0
+    fi
+    
+    # Find all subdirectories in features directory and build colon-separated list
+    feature_paths=""
+    for feature_dir in "$features_dir"/*; do
+        if [ -d "$feature_dir" ]; then
+            feature_name=$(basename "$feature_dir")
+            lib_dir="$feature_dir/lib"
+            
+            if [ -d "$lib_dir" ]; then
+                if [ -z "$feature_paths" ]; then
+                    feature_paths="$lib_dir"
+                else
+                    feature_paths="$feature_paths:$lib_dir"
+                fi
+            fi
+        fi
+    done
+    
+    echo "$feature_paths"
+}
+
+
+# 7.2.2.3 -> 7.2.2
+_TRT_VER_SHORT=$(echo "@REQUIRED_TENSORRT_VER@" | sed 's/^\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)\..*/\1.\2\.\3/')
+
+_CUDALIB=`findpath  "Cuda @REQUIRED_CUDA_VER@"   libcudart.so \
+    $CUDA_TOOLKIT \
+    /usr/local/VideoFX/external/cuda/lib \
+    /usr/local/cuda-@REQUIRED_CUDA_VER@/lib64 \
+    /usr/lib/x86_64-linux-gnu \
+    /usr/lib64`
+add_ldlibpath "$_CUDALIB"
+
+_TRTLIB=`findpath  "TensorRT @REQUIRED_TENSORRT_VER@"  libnvinfer.so.${_TRT_VER_SHORT} \
+    $TensorRT_DIR \
+    /usr/local/VideoFX/external/tensorrt/lib \
+    /usr/local/TensorRT-@REQUIRED_TENSORRT_VER@/lib \
+    /usr/lib/x86_64-linux-gnu \
+    /usr/lib64`
+add_ldlibpath "$_TRTLIB"
+
+_CUDNNLIB=`findpath  "cuDNN @REQUIRED_CUDNN_VER@"  libcudnn.so.@REQUIRED_CUDNN_VER@ \
+    /usr/local/VideoFX/external/cuda/lib \
+    /usr/local/cuda-@REQUIRED_CUDNN_VER@/lib64 \
+    /usr/local/cuda/lib64 \
+    /usr/lib/x86_64-linux-gnu \
+    /usr/lib64`
+add_ldlibpath "$_CUDNNLIB"
+
+_VFX_LIB=`findpath  "VideoFX lib" libVideoFX.so \
+    @NVVFX_DYNAMIC_LIBRARY_DIR@ \
+    /usr/lib/x86_64-linux-gnu \
+    /usr/lib64 \
+    /usr/local/VideoFX/lib`
+add_ldlibpath "$_VFX_LIB"
+
+_VFX_MODELS=`findpath  "VideoFX models" . \
+    @NVVFX_MODEL_DIR@ \
+    /usr/share/libvideofx/models \
+    /usr/local/VideoFX/lib/models`
+
+# Find feature library paths and add them to LD_LIBRARY_PATH
+_VFX_ROOT=$_VFX_LIB/..
+_FEATURE_PATHS=`findfeaturelibpaths "$_VFX_ROOT"`
+
+add_ldlibpath "$_FEATURE_PATHS"
+
+export PATH=`pwd`:$PATH

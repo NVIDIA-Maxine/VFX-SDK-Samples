@@ -1,0 +1,33 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+VideoEffectsApp \
+        --model_dir=$_VFX_MODELS \
+        --in_file=input1.jpg \
+        --out_file=ar_1.png \
+        --effect=ArtifactReduction \
+        --mode=1
+
+VideoEffectsApp \
+        --model_dir=$_VFX_MODELS \
+        --in_file=input1.jpg \
+        --out_file=ar_0.png \
+        --effect=ArtifactReduction \
+        --mode=0
+
+VideoEffectsApp \
+        --model_dir=$_VFX_MODELS \
+        --in_file=input2.jpg \
+        --out_file=sr_0.png \
+        --effect=SuperRes \
+        --resolution=2160 \
+        --mode=0
+
+VideoEffectsApp \
+        --model_dir=$_VFX_MODELS \
+        --in_file=input2.jpg \
+        --out_file=sr_1.png \
+        --effect=SuperRes \
+        --resolution=2160 \
+        --mode=1

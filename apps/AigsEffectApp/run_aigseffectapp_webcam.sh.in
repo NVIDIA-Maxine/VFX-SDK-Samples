@@ -1,0 +1,10 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+# Use --show to show the output in a window or use --out_file=<filename> to write output to file
+
+./AigsEffectApp \
+        --model_dir=$_VFX_MODELS \
+        --webcam \
+        --show

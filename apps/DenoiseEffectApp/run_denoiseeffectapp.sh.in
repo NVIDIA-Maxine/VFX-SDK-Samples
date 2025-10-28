@@ -1,0 +1,16 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+
+DenoiseEffectApp \
+        --model_dir=$_VFX_MODELS \
+        --webcam \
+        --strength=0 \
+        --show
+
+DenoiseEffectApp \
+        --model_dir=$_VFX_MODELS \
+        --webcam \
+        --strength=1 \
+        --show

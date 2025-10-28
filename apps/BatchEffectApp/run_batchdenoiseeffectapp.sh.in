@@ -1,0 +1,15 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+if [ "$#" -eq 0 ] 
+  then
+    echo "Please provide video files as arguments to the script."
+    echo "Usage:"
+    echo "run_batchdenoiseeffectapp.sh video1.mp4 [... videoN.mp4]"    
+    exit 1
+fi 
+
+BatchDenoiseEffectApp \
+                --model_dir=$_VFX_MODELS \
+                "$@"

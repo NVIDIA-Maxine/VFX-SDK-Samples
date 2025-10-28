@@ -1,0 +1,31 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+PIC_LIST="LeFret_000900.jpg LeFret_001400.jpg LeFret_003400.jpg LeFret_012300.jpg"
+
+# BatchEffectApp \
+#               --effect=Transfer \
+#               --model_dir=$VFX_MODELS \
+#               --out_file='Transfer_%04u.png' \
+#               $PIC_LIST
+
+BatchEffectApp \
+                --effect=ArtifactReduction \
+                --model_dir=$_VFX_MODELS \
+                --out_file='ArtifactReduction_%04u.png' \
+                $PIC_LIST
+
+BatchEffectApp \
+                --effect=SuperRes \
+                --model_dir=$_VFX_MODELS \
+                --out_file='SuperRes_%04u.png' \
+                --scale=1.5 \
+                $PIC_LIST
+
+BatchEffectApp \
+                --effect=Upscale \
+                --model_dir=$_VFX_MODELS \
+                --out_file='Upscale_%04u.png' \
+                --scale=1.5 \
+                $PIC_LIST

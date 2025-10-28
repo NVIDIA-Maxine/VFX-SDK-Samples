@@ -1,0 +1,4 @@
+SETLOCAL
+SET PATH=%PATH%;@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;
+DenoiseEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --webcam  --strength=0 --show
+DenoiseEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --webcam  --strength=1 --show

@@ -1,0 +1,4 @@
+SETLOCAL
+SET PATH=%PATH%;@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;
+SET VIDEO_LIST=input_0_100_frames.mp4 input_100_250_frames.mp4
+BatchAigsEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --out_file=GreenScreen_%%04u.mp4 %VIDEO_LIST%

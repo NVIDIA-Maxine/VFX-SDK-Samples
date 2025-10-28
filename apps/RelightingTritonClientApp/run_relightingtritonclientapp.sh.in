@@ -1,0 +1,12 @@
+#!/bin/sh
+
+. ./setup_env.sh    # This sets LD_LIBRARY_PATH, and _VFX_MODELS
+
+RelightingTritonClientApp                   \
+    --model_dir="${_VFX_MODELS}"            \
+    --in_file="input_100_250_frames.mp4"    \
+    --in_hdr="vkl_mid.hdr"                  \
+    --in_bg="input1.jpg"                    \
+    --autorotate                            \
+    --out_file=test_out.mp4                 \
+    "$@"

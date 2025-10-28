@@ -1,0 +1,59 @@
+SETLOCAL
+SET PATH=%PATH%;@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;
+
+REM Use studio lighting on webcam input and display on screen
+RelightingEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --in_hdr=vkl_mid.hdr --webcam --show %*
+
+REM Use studio lighting with video file in and out and also display on screen, so the lighting can be changed dynamically.
+REM However, --show is not needed for offline processing, as --pan=degrees can be used to  specify the lighting angle.
+REM Replace input.mp4 andd output.mp4 with your desired video files.
+REM RelightingEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --in_hdr=vkl_mid.hdr --in_file=input.mp4 --out_file=output.mp4 --show %*
+
+
+
+
+REM Keyboard Control Legend with --show in interactive mode
+REM  ESC or q   quit
+REM  , (comma)  adjust pan by -1 degree
+REM  . (period) adjust pan by +1 degree
+REM  <          adjust pan by -10 degrees
+REM  >          adjust pan by +10 degrees
+REM  v (lower)  adjust vfov by -10 degrees
+REM  V (upper)  adjust vfov by +10 degrees
+REM  r          auto-rotate
+REM  p or space pause video
+REM  f          toggle between showing and not showing the frame rate
+REM  i          toggle between showing output and showing input
+REM  n          advance to the next HDR for illumination
+REM  b          cycle through background mode
+REM  z          reset to studio lighting
+REM  h          print this help message
+
+
+
+REM Command-line arguments.
+REM RelightingEffectApp.exe [args ...]
+REM   where args is:
+REM   --in_file=<file>            specify input source file (image or video)
+REM   --webcam[=(true|false)]     use a webcam as the input, rather than a file
+REM   --cam_res=[WWWx]HHH         specify resolution as height or width x height
+REM   --out_dir=<dir>             set the output directory
+REM   --out_file=<file>           specify an output video file
+REM   --in_bg=<file|color>        use the specified file (png or jpg) or color (gray or 0xRRGGBB) for the background
+REM   --in_hdr=<file>             specify input HDR file (hdr or exr) or directory, for illumination.
+REM   --in_mat=<file>             specify input matte file. Only supported when processing images.
+REM                               If not specified, or when processing videos/webcam, AIGS is run
+REM   --pan=<num>                 set the initial pan angle, in degrees (default -90)
+REM   --vfov=<num>                set the initial vertical field of view, in degrees (default 60)
+REM   --autorotate[=(true|false)] automatically rotate the environment
+REM   --rotation_rate=<N>         the auto-rotation rate, in degrees per second
+REM   --show[=(true|false)]       display images on-screen
+REM   --show_mode=<mode>          Options - output, input
+REM   --model_dir=<path>          the path to the directory that contains the .trtmodel files
+REM   --codec=<fourcc>            the fourcc code for the desired codec (default avc1)
+REM   --verbose[=(true|false)]    verbose output
+REM   --debug[=(true|false)]      print extra debugging information
+REM   --log=<file>                log SDK errors to a file, "stderr" or "" (default stderr)
+REM   --log_level=<N>             the desired log level: {0, 1, 2, 3} = {FATAL, ERROR, WARNING, INFO}, respectively (default 1)
+REM   --help[=(true|false)]       print this help message
+REM   --bg_mode=<n>               0=src 1=srcBlur 2=HDR 3=bgImg 4=bgImgBlur

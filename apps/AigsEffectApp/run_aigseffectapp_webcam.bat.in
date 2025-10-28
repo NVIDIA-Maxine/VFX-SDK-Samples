@@ -1,0 +1,3 @@
+SETLOCAL
+SET PATH=%PATH%;@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;
+AigsEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --webcam --show

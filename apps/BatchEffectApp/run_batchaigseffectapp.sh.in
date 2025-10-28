@@ -1,0 +1,9 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+VID_LIST="input_0_100_frames.mp4 input_100_250_frames.mp4"
+
+BatchAigsEffectApp \
+                --model_dir=$_VFX_MODELS \
+                $VID_LIST

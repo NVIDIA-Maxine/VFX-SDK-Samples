@@ -1,0 +1,34 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+MISSINGVID="true"
+for arg in "$@"
+do
+    case "$arg" in
+        -*);;
+        *) MISSINGVID="false";;
+    esac
+done
+
+if $MISSINGVID
+then
+    echo "Please provide video files as arguments to the script."
+    echo "Usage:"
+    echo "run_tritonclientapp.sh video1.mp4 [... videoN.mp4]"
+    exit 0
+fi
+
+# AIGS mode 0
+TritonClientApp \
+    --effect=GreenScreen                          \
+    --mode=0                                      \
+    --out_file=AIGS_mode0_%02u.mp4                \
+    "$@"
+
+# AIGS mode 1
+TritonClientApp \
+    --effect=GreenScreen                          \
+    --mode=1                                      \
+    --out_file=AIGS_mode1_%02u.mp4                \
+    "$@"
