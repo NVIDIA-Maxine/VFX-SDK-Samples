@@ -10,7 +10,7 @@ then
 
 ./RelightingEffectApp \
         --model_dir=$_VFX_MODELS \
-        --in_hdr=vkl_mid.hdr \
+        --in_hdr=Default.hdr \
         --webcam \
         --show \
         "$@"  # additional command line args
@@ -18,13 +18,13 @@ then
 #######################################################################################
 # Use studio lighting with video file in and out and also display on screen, so the lighting can be changed dynamically.
 # However, --show is not needed for offline processing, as --pan=degrees can be used to  specify the lighting angle.
-# Replace input_100_250_frames.mp4 andd output.mp4 with your desired video files.
+# Replace relighting_video.mp4 andd output.mp4 with your desired video files.
 else
 
 ./RelightingEffectApp \
         --model_dir=$_VFX_MODELS \
-        --in_hdr=vkl_mid.hdr \
-        --in_file=input_100_250_frames.mp4 \
+        --in_hdr=Default.hdr \
+        --in_file=relighting_video.mp4 \
         --out_file=output.mp4 \
         "$@"  # additional command line args
         

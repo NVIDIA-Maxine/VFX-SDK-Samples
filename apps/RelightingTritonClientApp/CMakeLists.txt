@@ -71,8 +71,12 @@ endforeach()
 add_custom_command(TARGET RelightingTritonClientApp POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
   ${CMAKE_CURRENT_SOURCE_DIR}/README.md
-  ${VFXSDKSampleApps_RESOURCES_DIR}/input_100_250_frames.mp4
-  ${VFXSDKSampleApps_RESOURCES_DIR}/vkl_mid.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/relighting_video.mp4
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Warmer.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Warm.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Default.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Cool.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Cooler.hdr
   ${VFXSDKSampleApps_RESOURCES_DIR}/input1.jpg
   $<TARGET_FILE_DIR:RelightingTritonClientApp>
 )

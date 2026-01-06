@@ -16,6 +16,7 @@ The following parameters are required to run the application:
 | `--out_file=<file>` or `--show` | You can choose to write the output to a file, show it on the screen, or both. |
 
 **Note:** You must set up various paths in the environment to be able to access the libraries that this app needs. There are script and batch files that do this for you -- you will just need to edit them to set up the other necessary parameters.
+The --out_dir cmd line parameter to set up the output directory is not sufficient to create an output file. You must use it in conjunction with the --out_file parameter as well.
 
 Required Features
 -----------------
@@ -32,7 +33,7 @@ RelightingEffectApp Command-Line Reference
 | `--in_file=<file>`             | Specify input source file (image or video) |
 | `--webcam[={true\|false}]`     | Use a webcam as the input, rather than a file |
 | `--cam_res=[<width>x]<height>` | Specify resolution as height or width x height |
-| `--out_dir=<dir>`              | Set the output directory |
+| `--out_dir=<dir>`              | Set the output directory. Must use in conjunction with --out_file to create an output file |
 | `--out_file=<file>`            | Specify an output video file |
 | `--in_bg=<file\|color>`        | Use the specified file (png or jpg) or color (gray or 0xRRGGBB) for the background |
 | `--in_hdr=<file>`              | Specify input HDR file (hdr or exr) or directory, for illumination. |

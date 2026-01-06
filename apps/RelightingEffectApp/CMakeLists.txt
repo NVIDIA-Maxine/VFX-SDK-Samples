@@ -23,7 +23,7 @@
 # RelightingEffectApp #
 #######################
 
-set(REQUIRED_FEATURES nvVFXRelighting:1.0.0.0 nvVFXGreenScreen:1.0.0.0 nvVFXBackgroundBlur:1.0.0.0)
+set(REQUIRED_FEATURES nvVFXRelighting:1.1.0.0 nvVFXGreenScreen:1.1.0.0 nvVFXBackgroundBlur:1.1.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -107,7 +107,11 @@ endforeach()
 add_custom_command(TARGET RelightingEffectApp POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
   ${CMAKE_CURRENT_SOURCE_DIR}/README.md
-  ${VFXSDKSampleApps_RESOURCES_DIR}/input_100_250_frames.mp4
-  ${VFXSDKSampleApps_RESOURCES_DIR}/vkl_mid.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/relighting_video.mp4
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Warmer.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Warm.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Default.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Cool.hdr
+  ${VFXSDKSampleApps_RESOURCES_DIR}/Cooler.hdr
   $<TARGET_FILE_DIR:RelightingEffectApp>
 )

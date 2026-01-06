@@ -30,7 +30,6 @@
 #include <string>
 
 #include "nvCVOpenCV.h"
-#include "nvVFXArtifactReduction.h"
 #include "nvVFXSuperRes.h"
 #include "nvVFXTransfer.h"
 #include "nvVFXUpscale.h"
@@ -136,10 +135,10 @@ static void Usage() {
       "  --in_file=<path>           input file to be processed\n"
       "  --webcam                   use a webcam as the input\n"
       "  --out_file=<path>          output file to be written\n"
-      "  --effect=<effect>          the effect to apply (ArtifactReduction, Transfer, Upscale, SuperRes)\n"
+      "  --effect=<effect>          the effect to apply (Transfer, Upscale, SuperRes)\n"
       "  --show                     display the results in a window (for webcam, it is always true)\n"
       "  --strength=<value>         strength of the upscaling effect, [0.0, 1.0]\n"
-      "  --mode=<value>             mode of the super res or artifact reduction effect, 0 or 1, \n"
+      "  --mode=<value>             mode of the super res effect, 0 or 1, \n"
       "                             where 0 - conservative and 1 - aggressive\n"
       "  --cam_res=[WWWx]HHH        specify camera resolution as height or width x height\n"
       "                             supports 720 and 1080 resolutions (default \"720\") \n"
@@ -517,13 +516,6 @@ NvCV_Status FXApp::allocBuffers(unsigned width, unsigned height) {
                                          NVCV_GPU, 1));  // src GPU
     BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_dstGpuBuf, _dstImg.cols, _dstImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
                                          NVCV_GPU, 1));  // dst GPU
-  } else if (!strcmp(_effectName, NVVFX_FX_ARTIFACT_REDUCTION)) {
-    _dstImg.create(_srcImg.rows, _srcImg.cols, _srcImg.type());  // dst CPU
-    BAIL_IF_NULL(_dstImg.data, vfxErr, NVCV_ERR_MEMORY);
-    BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_srcGpuBuf, _srcImg.cols, _srcImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
-                                         NVCV_GPU, 1));  // src GPU
-    BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_dstGpuBuf, _dstImg.cols, _dstImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
-                                         NVCV_GPU, 1));  // dst GPU
   } else if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
     if (!FLAG_resolution) {
       printf("--resolution has not been specified\n");
@@ -585,9 +577,7 @@ FXApp::Err FXApp::processImage(const char* inFile, const char* outFile) {
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_INPUT_IMAGE, &_srcGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_OUTPUT_IMAGE, &_dstGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_eff, NVVFX_CUDA_STREAM, stream));
-  if (!strcmp(_effectName, NVVFX_FX_ARTIFACT_REDUCTION)) {
-    BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_MODE, (unsigned int)FLAG_mode));
-  } else if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
+  if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
     BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_MODE, (unsigned int)FLAG_mode));
   }
 
@@ -659,9 +649,7 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_INPUT_IMAGE, &_srcGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_OUTPUT_IMAGE, &_dstGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_eff, NVVFX_CUDA_STREAM, stream));
-  if (!strcmp(_effectName, NVVFX_FX_ARTIFACT_REDUCTION)) {
-    BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_MODE, (unsigned int)FLAG_mode));
-  } else if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
+  if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
     BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_MODE, (unsigned int)FLAG_mode));
   }
   BAIL_IF_ERR(vfxErr = NvVFX_Load(_eff));

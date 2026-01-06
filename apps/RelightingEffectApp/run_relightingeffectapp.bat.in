@@ -1,13 +1,13 @@
 SETLOCAL
-SET PATH=%PATH%;@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;
+SET PATH=@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;%PATH%;
 
 REM Use studio lighting on webcam input and display on screen
-RelightingEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --in_hdr=vkl_mid.hdr --webcam --show %*
+RelightingEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --in_hdr=Default.hdr --webcam --show %*
 
 REM Use studio lighting with video file in and out and also display on screen, so the lighting can be changed dynamically.
 REM However, --show is not needed for offline processing, as --pan=degrees can be used to  specify the lighting angle.
 REM Replace input.mp4 andd output.mp4 with your desired video files.
-REM RelightingEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --in_hdr=vkl_mid.hdr --in_file=input.mp4 --out_file=output.mp4 --show %*
+REM RelightingEffectApp.exe --model_dir=@NVVFX_MODEL_DIR@ --in_hdr=Default.hdr --in_file=relighting_video.mp4 --out_file=output.mp4 --show %*
 
 
 

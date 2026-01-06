@@ -178,7 +178,7 @@ static void Usage() {
       "  --model_dir=<path>          the path to the directory that contains the .trtmodel files\n"
       "  --mode=<N>                  set the mode to 1(sharp src background), 2(blurred src background), 3(sharp user "
       "input background), 4(blurred user input background), 5(sharp HDR background), 6(blurred HDR background)\n"
-      "  --out_dir=<dir>             set the output directory\n"
+      "  --out_dir=<dir>             set the output directory. Must use in conjunction with --out_file to create an output file \n"
       "  --out_file=<file>           specify an output video file\n"
       "  --out_mat=<file>            specify an output mask of the input source file\n"
       "  --pan=<num>                 set the initial pan angle, in degrees (default -90)\n"

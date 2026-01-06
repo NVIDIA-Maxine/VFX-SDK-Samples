@@ -11,12 +11,6 @@ PIC_LIST="LeFret_000900.jpg LeFret_001400.jpg LeFret_003400.jpg LeFret_012300.jp
 #               $PIC_LIST
 
 BatchEffectApp \
-                --effect=ArtifactReduction \
-                --model_dir=$_VFX_MODELS \
-                --out_file='ArtifactReduction_%04u.png' \
-                $PIC_LIST
-
-BatchEffectApp \
                 --effect=SuperRes \
                 --model_dir=$_VFX_MODELS \
                 --out_file='SuperRes_%04u.png' \

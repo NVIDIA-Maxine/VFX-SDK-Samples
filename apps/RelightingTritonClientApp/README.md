@@ -54,7 +54,7 @@ Command-Line Arguments for the Relighting Triton Client Application
 | `--log=<file>`                 | Log SDK errors to a file, "stderr" or "" (default stderr) |
 | `--log_level=<N>`              | The desired log level: {`0`, `1`, `2`, `3`} = {FATAL, ERROR, WARNING, INFO}, respectively (default `1`) |
 | `--model_dir=<path>`           | The path to the directory that contains the .trtmodel files |
-| `--out_dir=<dir>`              | Set the output directory |
+| `--out_dir=<dir>`              | Set the output directory. Must use in conjunction with --out_file to create an output file  |
 | `--out_file=<file>`            | Specify an output video file |
 | `--pan=<num>`                  | Set the initial pan angle, in degrees (default `-90`) |
 | `--rotation_rate=<N>`          | The auto-rotation rate, in degrees per second |

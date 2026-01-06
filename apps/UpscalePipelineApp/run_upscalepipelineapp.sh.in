@@ -6,7 +6,6 @@
 UpscalePipelineApp \
         --model_dir=$_VFX_MODELS \
         --in_file=input1.jpg \
-        --ar_mode=0 \
         --upscale_strength=0 \
         --resolution=1080 \
-        --out_file=ar_sr_0.png
+        --out_file=sr_0.png

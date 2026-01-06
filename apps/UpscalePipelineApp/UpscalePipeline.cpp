@@ -30,20 +30,12 @@
 #include <string>
 
 #include "nvCVOpenCV.h"
-#include "nvVFXArtifactReduction.h"
 #include "nvVFXUpscale.h"
 #include "nvVideoEffects.h"
 #include "opencv2/opencv.hpp"
 
 /*########################################################################################################################
-# This application demonstrates the pipelining of two NvVFX_API video effects through a common use case whereby an image
-# or image sequence is fed first through the Artifact Removal filter, and then through the Super Resolution filter,
-# to produce an upscaled, video compression artifact-reduced version of the image/image sequence.
-# This is likely to be useful when dealing with low-quality input video bitstreams,
-# such as during game or movie streaming in a congested network environment.
-# While only the specific use case of pipelining the Artifact Removal and Super Resolution
-# filters is supported here to avoid undue code complexity, the basic method and structure shown here can be applied
-# to pipeline an arbitrary sequence of NvVFX_API video effects.
+# This application demonstrates the Upscaler feature, to produce an upscaled version of the image/image sequence.
 ##########################################################################################################################*/
 
 #ifdef _MSC_VER
@@ -144,8 +136,6 @@ static void Usage() {
       "  --in_file=<path>                    input file to be processed\n"
       "  --out_file=<path>                   output file to be written\n"
       "  --show                              display the results in a window\n"
-      "  --ar_mode=(0|1)                     mode of artifact reduction filter (0: conservative, 1: aggressive, "
-      "default 0)\n"
       "  --upscale_strength=(0 to 1)         strength of upscale filter (float value between 0 to 1)\n"
       "  --resolution=<height>               the desired height of the output\n"
       "  --out_height=<height>               the desired height of the output\n"
@@ -316,7 +306,6 @@ struct FXApp {
   };
 
   FXApp() {
-    _arEff = nullptr;
     _upscaleEff = nullptr;
     _inited = false;
     _showFPS = false;
@@ -327,7 +316,7 @@ struct FXApp {
   ~FXApp() { destroyEffects(); }
 
   void setShow(bool show) { _show = show; }
-  Err createEffects(const char* modelDir, NvVFX_EffectSelector first, NvVFX_EffectSelector second);
+  Err createEffects(NvVFX_EffectSelector eff);
   void destroyEffects();
   NvCV_Status allocBuffers(unsigned width, unsigned height);
   NvCV_Status allocTempBuffers();
@@ -338,12 +327,9 @@ struct FXApp {
   Err appErrFromVfxStatus(NvCV_Status status) { return (Err)status; }
   const char* errorStringFromCode(Err code);
 
-  NvVFX_Handle _arEff;
   NvVFX_Handle _upscaleEff;
   cv::Mat _srcImg;
   cv::Mat _dstImg;
-  NvCVImage _srcGpuBuf;
-  NvCVImage _interGpuBGRf32pl;
   NvCVImage _interGpuRGBAu8;
   NvCVImage _dstGpuBuf;
   NvCVImage _srcVFX;
@@ -417,18 +403,14 @@ FXApp::Err FXApp::processKey(int key) {
   return errNone;
 }
 
-FXApp::Err FXApp::createEffects(const char* modelDir, NvVFX_EffectSelector first, NvVFX_EffectSelector second) {
+FXApp::Err FXApp::createEffects(NvVFX_EffectSelector eff) {
   NvCV_Status vfxErr;
-  BAIL_IF_ERR(vfxErr = NvVFX_CreateEffect(first, &_arEff));
-  BAIL_IF_ERR(vfxErr = NvVFX_SetString(_arEff, NVVFX_MODEL_DIRECTORY, modelDir));
-  BAIL_IF_ERR(vfxErr = NvVFX_CreateEffect(second, &_upscaleEff));
+  BAIL_IF_ERR(vfxErr = NvVFX_CreateEffect(eff, &_upscaleEff));
 bail:
   return appErrFromVfxStatus(vfxErr);
 }
 
 void FXApp::destroyEffects() {
-  NvVFX_DestroyEffect(_arEff);
-  _arEff = nullptr;
   NvVFX_DestroyEffect(_upscaleEff);
   _upscaleEff = nullptr;
 }
@@ -466,10 +448,7 @@ NvCV_Status FXApp::allocBuffers(unsigned width, unsigned height) {
   dstWidth = _srcImg.cols * FLAG_resolution / _srcImg.rows;
   _dstImg.create(FLAG_resolution, dstWidth, _srcImg.type());  // dst CPU
   BAIL_IF_NULL(_dstImg.data, vfxErr, NVCV_ERR_MEMORY);
-  BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_srcGpuBuf, _srcImg.cols, _srcImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
-                                       NVCV_GPU, 1));  // src GPU
-  BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_interGpuBGRf32pl, _srcImg.cols, _srcImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
-                                       NVCV_GPU, 1));  // intermediate GPU
+
   BAIL_IF_ERR(vfxErr = NvVFX_SetF32(_upscaleEff, NVVFX_STRENGTH, FLAG_upscaleStrength));
   BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_interGpuRGBAu8, _srcImg.cols, _srcImg.rows, NVCV_RGBA, NVCV_U8,
                                        NVCV_INTERLEAVED, NVCV_GPU, 32));  // intermediate GPU
@@ -495,28 +474,18 @@ FXApp::Err FXApp::processImage(const char* inFile, const char* outFile) {
   CUstream stream = 0;
   NvCV_Status vfxErr;
 
-  if (!_arEff || !_upscaleEff) return errEffect;
+  if (!_upscaleEff) return errEffect;
   _srcImg = cv::imread(inFile);
   if (!_srcImg.data) return errRead;
 
   BAIL_IF_ERR(vfxErr = allocBuffers(_srcImg.cols, _srcImg.rows));
 
-  BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcGpuBuf, 1.f / 255.f, stream,
-                                          &_tmpVFX));  // _srcTmpVFX--> _dstTmpVFX --> _srcGpuBuf
-  BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_arEff, NVVFX_INPUT_IMAGE, &_srcGpuBuf));
-  BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_arEff, NVVFX_OUTPUT_IMAGE, &_interGpuBGRf32pl));
-  BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_arEff, NVVFX_CUDA_STREAM, stream));
-  BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_arEff, NVVFX_MODE, FLAG_arMode));
-
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_upscaleEff, NVVFX_INPUT_IMAGE, &_interGpuRGBAu8));
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_upscaleEff, NVVFX_OUTPUT_IMAGE, &_dstGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_upscaleEff, NVVFX_CUDA_STREAM, stream));
 
-  BAIL_IF_ERR(vfxErr = NvVFX_Load(_arEff));
   BAIL_IF_ERR(vfxErr = NvVFX_Load(_upscaleEff));
-  BAIL_IF_ERR(vfxErr = NvVFX_Run(_arEff, 0));  // _srcGpuBuf --> _interGpuBuf
-  // transfer between intermediate buffers if selected method is Upscale
-  BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_interGpuBGRf32pl, &_interGpuRGBAu8, 255.f, stream, &_tmpVFX));
+  BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_interGpuRGBAu8, 1.f, stream, &_tmpVFX));
   BAIL_IF_ERR(vfxErr = NvVFX_Run(_upscaleEff, 0));  // _interGpuBuf --> _dstGpuBuf
   BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstGpuBuf, &_dstVFX, 1.f, stream,
                                           &_tmpVFX));  // _dstGpuBuf --> _dstTmpVFX --> _dstVFX
@@ -569,12 +538,6 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
     }
   }
 
-  BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_arEff, NVVFX_INPUT_IMAGE, &_srcGpuBuf));
-  BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_arEff, NVVFX_OUTPUT_IMAGE, &_interGpuBGRf32pl));
-  BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_arEff, NVVFX_CUDA_STREAM, stream));
-  BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_arEff, NVVFX_MODE, FLAG_arMode));
-  BAIL_IF_ERR(vfxErr = NvVFX_Load(_arEff));
-
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_upscaleEff, NVVFX_INPUT_IMAGE, &_interGpuRGBAu8));
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_upscaleEff, NVVFX_OUTPUT_IMAGE, &_dstGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_upscaleEff, NVVFX_CUDA_STREAM, stream));
@@ -585,11 +548,8 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
       printf("Frame %u is empty\n", frameNum);
     }
 
-    // _srcVFX   --> _srcTmpVFX --> _srcGpuBuf --> _interGpuBuf --> _dstGpuBuf --> _dstTmpVFX --> _dstVFX
-    BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcGpuBuf, 1.f / 255.f, stream, &_tmpVFX));
-    BAIL_IF_ERR(vfxErr = NvVFX_Run(_arEff, 0));
     // transfer between intermediate buffers if selected method is Upscale
-    BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_interGpuBGRf32pl, &_interGpuRGBAu8, 255.f, stream, &_tmpVFX));
+    BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_interGpuRGBAu8, 1.f, stream, &_tmpVFX));
     BAIL_IF_ERR(vfxErr = NvVFX_Run(_upscaleEff, 0));
     BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstGpuBuf, &_dstVFX, 1.f, stream, &_tmpVFX));
 
@@ -643,12 +603,11 @@ int main(int argc, char** argv) {
     Usage();
     fxErr = FXApp::errFlag;
   } else {
-    NvVFX_EffectSelector first = NVVFX_FX_ARTIFACT_REDUCTION;
-    NvVFX_EffectSelector second = NVVFX_FX_SR_UPSCALE;
+    NvVFX_EffectSelector eff = NVVFX_FX_SR_UPSCALE;
 
-    fxErr = app.createEffects(FLAG_modelDir.c_str(), first, second);
+    fxErr = app.createEffects(eff);
     if (FXApp::errNone != fxErr) {
-      std::cerr << "Error creating effects \"" << first << " & " << second << "\"\n";
+      std::cerr << "Error creating effects \"" << eff << "\"\n";
     } else {
       if (IsImageFile(FLAG_inFile.c_str()))
         fxErr = app.processImage(FLAG_inFile.c_str(), FLAG_outFile.c_str());

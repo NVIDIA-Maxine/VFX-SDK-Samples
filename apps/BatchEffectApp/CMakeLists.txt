@@ -35,7 +35,7 @@ endif()
 # BatchEffectApp #
 ##################
 
-set(REQUIRED_FEATURES nvVFXArtifactReduction:1.0.0.0 nvVFXSuperRes:1.0.0.0 nvVFXUpscale:1.0.0.0 nvVFXTransfer:1.0.0.0)
+set(REQUIRED_FEATURES nvVFXSuperRes:1.1.0.0 nvVFXUpscale:1.1.0.0 nvVFXTransfer:1.1.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -111,7 +111,7 @@ endforeach()
 # BatchDenoiseEffectApp #
 #########################
 
-set(REQUIRED_FEATURES nvVFXDenoising:1.0.0.0)
+set(REQUIRED_FEATURES nvVFXDenoising:1.1.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -179,7 +179,7 @@ endforeach()
 # BatchAigsEffectApp #
 ######################
 
-set(REQUIRED_FEATURES nvVFXGreenScreen:1.0.0.0)
+set(REQUIRED_FEATURES nvVFXGreenScreen:1.1.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)

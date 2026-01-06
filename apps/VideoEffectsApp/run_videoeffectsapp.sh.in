@@ -4,20 +4,6 @@
 
 VideoEffectsApp \
         --model_dir=$_VFX_MODELS \
-        --in_file=input1.jpg \
-        --out_file=ar_1.png \
-        --effect=ArtifactReduction \
-        --mode=1
-
-VideoEffectsApp \
-        --model_dir=$_VFX_MODELS \
-        --in_file=input1.jpg \
-        --out_file=ar_0.png \
-        --effect=ArtifactReduction \
-        --mode=0
-
-VideoEffectsApp \
-        --model_dir=$_VFX_MODELS \
         --in_file=input2.jpg \
         --out_file=sr_0.png \
         --effect=SuperRes \
