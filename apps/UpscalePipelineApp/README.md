@@ -8,7 +8,7 @@ The Upscaler feature supports any input resolution and can be upscaled 4/3x, 1.5
 
 Required Features
 -----------------
-This app requires the following features to be installed. Make sure to install them using *install_features.ps1* (Windows) or *install_features.sh* (Linux) in your VFX SDK features directory before building it.
+This app requires the following features to be installed. Make sure to install them using *install_feature.ps1* (Windows) or *install_feature.sh* (Linux) in your VFX SDK features directory before building it.
 - nvVFXUpscale
 
 UpscalePipeline Application Command-Line Reference

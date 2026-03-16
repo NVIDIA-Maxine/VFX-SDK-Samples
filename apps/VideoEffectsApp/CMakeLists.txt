@@ -23,7 +23,7 @@
 # VideoEffectsApp #
 ###################
 
-set(REQUIRED_FEATURES nvVFXGreenScreen:1.1.0.0 nvVFXSuperRes:1.1.0.0 nvVFXUpscale:1.1.0.0 nvVFXTransfer:1.1.0.0)
+set(REQUIRED_FEATURES nvVFXVideoSuperRes:1.2.0.0 nvVFXTransfer:1.2.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -34,11 +34,15 @@ endforeach()
 
 if(WIN32)
   set(RUN_FILES
-    run_videoeffectsapp.bat
+    run_videoeffectsapp_webcam.bat
+    run_videoeffectsapp_image.bat
+    run_videoeffectsapp_video.bat
   )
 else()
   set(RUN_FILES
-    run_videoeffectsapp.sh
+    run_videoeffectsapp_webcam.sh
+    run_videoeffectsapp_image.sh
+    run_videoeffectsapp_video.sh
     setup_env.sh)
 endif()
 
@@ -107,7 +111,7 @@ endforeach()
 add_custom_command(TARGET VideoEffectsApp POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
   ${CMAKE_CURRENT_SOURCE_DIR}/README.md
-  ${VFXSDKSampleApps_RESOURCES_DIR}/input1.jpg
-  ${VFXSDKSampleApps_RESOURCES_DIR}/input2.jpg
+  ${VFXSDKSampleApps_RESOURCES_DIR}/input_vsr_1.mp4
+  ${VFXSDKSampleApps_RESOURCES_DIR}/input_vsr_2.png
   $<TARGET_FILE_DIR:VideoEffectsApp>
 )

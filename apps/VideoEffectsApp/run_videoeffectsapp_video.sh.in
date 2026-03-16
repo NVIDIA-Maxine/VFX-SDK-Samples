@@ -1,0 +1,12 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+# VideoSuperRes video example - upscales a video file
+
+./VideoEffectsApp \
+        --effect=VideoSuperRes \
+        --in_file=input_vsr_1.mp4 \
+        --out_file=output_vsr_video.mp4 \
+        --resolution=2160 \
+        --mode=3

@@ -1,15 +1,14 @@
 BatchEffectApp
 ==============
 
-BatchEffectApp is a sample application that demonstrates the simultaneous processing of a batch of images/videos by certain effects of the NVIDIA Video Effects SDK, in order to achieve higher performance. The supported features for this app are Super Resolution and Upscaling. The batch script provided demonstrates the usage of multiple images as inputs, which are expected to be of the same resolution. These can be specified with command-line arguments enumerated by executing: `BatchEffectApp.exe --help` (on Windows) or `./BatchEffectApp --help` (on Linux). 
+BatchEffectApp is a sample application that demonstrates the simultaneous processing of a batch of images/videos by certain effects of the NVIDIA Video Effects SDK, in order to achieve higher performance. The supported feature for this app is Upscaling. The batch script provided demonstrates the usage of multiple images as inputs, which are expected to be of the same resolution. These can be specified with command-line arguments enumerated by executing: `BatchEffectApp.exe --help` (on Windows) or `./BatchEffectApp --help` (on Linux). 
 
 Similar to BatchEffectApp, we have also provided BatchDenoiseEffectApp and BatchAigsEffectApp, which demonstrates batching in the Webcam Denoising and AI Green Screen features respectively. The batch script provided demonstrates the usage of multiple videos as inputs, which are expected to be of the same resolution and length.
 
 
 Required Features
 -----------------
-This app requires the following features to be installed. Make sure to install them using *install_features.ps1* (Windows) or *install_features.sh* (Linux) in your VFX SDK features directory before building it.
-- nvVFXSuperRes
+This app requires the following features to be installed. Make sure to install them using *install_feature.ps1* (Windows) or *install_feature.sh* (Linux) in your VFX SDK features directory before building it.
 - nvVFXUpscale
 - nvVFXTransfer
 
@@ -19,10 +18,9 @@ BatchEffectApp Command-Line Reference
 | Flag                | Description |
 |---------------------|-------------|
 | `--out_file=<path>` | Output video files to be written. Specify a pattern that includes `%u` or `%d`. Default is `BatchOut_%02u.mp4`. |
-| `--effect=<effect>` | One of the following effects to be applied:<br><br>- Transfer<br>- SuperRes<br>- Upscale |
-| `--strength=<value>` | The strength of an effect, specified as a float value.<br><br>- For upscaling, the range is `0.0` to `1.0`.<br>- For super resolution, the typical range is `0.0` to `4.0`. |
+| `--effect=<effect>` | One of the following effects to be applied:<br><br>- Transfer<br>- Upscale |
+| `--strength=<value>` | The strength of an effect, specified as a float value.<br><br>- For upscaling, the range is `0.0` to `1.0`. |
 | `--scale=<scale>`   | The scale factor to be applied. Valid values are `1.3333333`, `1.5`, `2`, `3`, or `4`. |
-| `--mode=<mode>`     | For SuperRes, selects the strength of the filter to be applied.<br><br>- `0`: Weak effect.<br>- `1`: Strong effect. |
 | `--model_dir=<path>` | The path to the directory that contains the models. |
 | `--verbose`         | Shows verbose output. |
 | `--help`            | Displays help information. |

@@ -167,7 +167,8 @@ static void Usage() {
       "  --log_level=<N>             the desired log level: {0, 1, 2, 3} = {FATAL, ERROR, WARNING, INFO}, respectively "
       "(default 1)\n"
       "  --model_dir=<path>          the path to the directory that contains the .trtmodel files\n"
-      "  --out_dir=<dir>             set the output directory. Must use in conjunction with --out_file to create an output file \n"
+      "  --out_dir=<dir>             set the output directory. Must use in conjunction with --out_file to create an "
+      "output file \n"
       "  --out_file=<file>           specify an output video file\n"
       "  --pan=<num>                 set the initial pan angle, in degrees (default -90)\n"
       "  --rotation_rate=<N>         the auto-rotation rate, in degrees per second\n"
@@ -656,7 +657,8 @@ struct RelightApp {
         m_autorotate(false),
         m_rotationRate(20.f * F_RADIANS_PER_DEGREE),
         m_autoDelta(2.f * F_RADIANS_PER_DEGREE),
-        m_pauseFrame(false) {
+        m_pauseFrame(false),
+        m_hdrIndex(0) {
   }
   ~RelightApp() { cleanup(); }
 
@@ -1292,7 +1294,15 @@ int main(int argc, char** argv) {
   nErrs = ParseMyArgs(argc, argv);
   if (nErrs) {
     if (NVCV_ERR_HELP == nErrs) return nErrs;
-    std::cerr << nErrs << " command line syntax problems\n";
+    try {
+      std::cerr << nErrs << " command line syntax problems\n";
+    } catch (const std::exception& e) {
+      printf("Error: Exception thrown: %s\n", e.what());
+      return 1;
+    } catch (...) {
+      printf("Error: Unknown exception thrown\n");
+      return 1;
+    }
   }
 
   NvCV_Status vfxErr = NvVFX_ConfigureLogger(FLAG_logLevel, FLAG_log.c_str(), nullptr, nullptr);

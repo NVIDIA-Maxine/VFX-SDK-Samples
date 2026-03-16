@@ -1,0 +1,13 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+# VideoSuperRes webcam example - upscales live webcam feed
+
+./VideoEffectsApp \
+        --effect=VideoSuperRes \
+        --cam_res=1280x720 \
+        --resolution=1080 \
+        --mode=1 \
+        --webcam \
+        --show

@@ -22,6 +22,14 @@
 ###################
 # TritonClientApp #
 ###################
+set(REQUIRED_FEATURES nvVFXGreenScreen:1.2.0.0)
+foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
+  verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
+  if(NOT RESULT)
+    message(${SAMPLES_DEPS_ERROR_LEVEL} "Skipping TritonClientApp.")
+    return()
+  endif()
+endforeach()
 set(RUN_FILES
   run_tritonclientapp.sh
   setup_env.sh)

@@ -7,7 +7,7 @@ It can concurrently process multiple input video files with AI Green Screen feat
 
 Required Features
 -----------------
-This app requires the following features to be installed. Make sure to install them using *install_features.ps1* (Windows) or *install_features.sh* (Linux) in your VFX SDK features directory before building it.
+This app requires the following features to be installed. Make sure to install them using *install_feature.ps1* (Windows) or *install_feature.sh* (Linux) in your VFX SDK features directory before building it.
 - nvVFXGreenScreen
 
 Run the Triton Client Application

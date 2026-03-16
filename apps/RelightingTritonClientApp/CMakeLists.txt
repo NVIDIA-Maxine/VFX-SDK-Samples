@@ -22,6 +22,14 @@
 #############################
 # RelightingTritonClientApp #
 #############################
+set(REQUIRED_FEATURES nvVFXAIGSRelighting:1.2.0.0)
+foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
+  verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
+  if(NOT RESULT)
+    message(${SAMPLES_DEPS_ERROR_LEVEL} "Skipping RelightingTritonClientApp.")
+    return()
+  endif()
+endforeach()
 set(RUN_FILES
   run_relightingtritonclientapp.sh
   setup_env.sh)

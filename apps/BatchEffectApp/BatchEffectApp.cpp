@@ -29,7 +29,6 @@
 
 #include "batchUtilities.h"
 #include "nvCVOpenCV.h"
-#include "nvVFXSuperRes.h"
 #include "nvVFXTransfer.h"
 #include "nvVFXUpscale.h"
 #include "nvVideoEffects.h"
@@ -134,7 +133,7 @@ static void Usage() {
       "BatchEffectApp [flags ...] inFile1 [ inFileN ...]\n"
       "  where flags is:\n"
       "  --out_file=<path>     output image files to be written, default \"BatchOut_%%02u.png\"\n"
-      "  --effect=<effect>     the effect to apply (Transfer, Upscale, SuperRes)\n"
+      "  --effect=<effect>     the effect to apply (Transfer, Upscale)\n"
       "  --strength=<value>    strength of the upscaling effect, [0.0, 1.0]\n"
       "  --scale=<scale>       scale factor to be applied: 1.33, 1.5, 2, 3, 4\n"
       "  --resolution=<height> the desired height (either --scale or --resolution may be used)\n"
@@ -249,16 +248,6 @@ class App {
       BAIL_IF_ERR(err = NvVFX_SetF32(_eff, NVVFX_STRENGTH, FLAG_strength));
     }
 #endif  // NVVFX_FX_SR_UPSCALE
-#ifdef NVVFX_FX_SUPER_RES
-    else if (!strcmp(effectName, NVVFX_FX_SUPER_RES)) {
-      BAIL_IF_ERR(err = AllocateBatchBuffer(&_src, _batchSize, src->width, src->height, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
-                                            NVCV_CUDA, 1));
-      BAIL_IF_ERR(err = AllocateBatchBuffer(&_dst, _batchSize, dw, dh, NVCV_BGR, NVCV_F32, NVCV_PLANAR, NVCV_CUDA, 1));
-      BAIL_IF_ERR(err = NvVFX_SetString(_eff, NVVFX_MODEL_DIRECTORY, FLAG_modelDir.c_str()));
-      BAIL_IF_ERR(err = NvVFX_SetU32(_eff, NVVFX_MODE, FLAG_mode));
-      BAIL_IF_ERR(err = NvVFX_SetF32(_eff, NVVFX_STRENGTH, FLAG_strength));
-    }
-#endif  // NVVFX_FX_SUPER_RES
     else {
       BAIL(err, NVCV_ERR_UNIMPLEMENTED);
     }

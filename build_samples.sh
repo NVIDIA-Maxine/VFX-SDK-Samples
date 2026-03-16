@@ -459,8 +459,8 @@ then
                 ;;
             rocky9|rhel9)
                 NASM_TAG="tags/nasm-2.15.05"
-                FFMPEG_TAG="n4.3.2"
-                OPENCV_TAG="4.6.0"
+                FFMPEG_TAG="n5.1.4"
+                OPENCV_TAG="4.7.0" # [rocky 9: opencv 4.6.0 + ffmpeg 5.1.4]
                 ;;
             *) die "unexpected OS":;
         esac

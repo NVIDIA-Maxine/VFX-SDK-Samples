@@ -6,7 +6,7 @@ DenoiseEffectApp is a sample application that demonstrates the Webcam Denoising 
 
 Required Features
 -----------------
-This app requires the following features to be installed. Make sure to install them using *install_features.ps1* (Windows) or *install_features.sh* (Linux) in your VFX SDK features directory before building it.
+This app requires the following features to be installed. Make sure to install them using *install_feature.ps1* (Windows) or *install_feature.sh* (Linux) in your VFX SDK features directory before building it.
 - nvVFXDenoising
 
 DenoiseEffect Application Command-Line Reference

@@ -30,9 +30,8 @@
 #include <string>
 
 #include "nvCVOpenCV.h"
-#include "nvVFXSuperRes.h"
 #include "nvVFXTransfer.h"
-#include "nvVFXUpscale.h"
+#include "nvVFXVideoSuperRes.h"
 #include "nvVideoEffects.h"
 #include "opencv2/opencv.hpp"
 
@@ -64,11 +63,45 @@
 #define DEFAULT_CODEC "H264"
 #endif  // _WIN32
 
+struct VSRModeInfo {
+  unsigned int mode;
+  const char* name;
+};
+
+static const VSRModeInfo kVSRModes[] = {
+    {0, "VSR Bicubic"},          //
+    {1, "VSR Low"},              //
+    {2, "VSR Medium"},           //
+    {3, "VSR High"},             //
+    {4, "VSR Ultra"},            //
+    {8, "Denoise Low"},          //
+    {9, "Denoise Medium"},       //
+    {10, "Denoise High"},        //
+    {11, "Denoise Ultra"},       //
+    {12, "Deblur Low"},          //
+    {13, "Deblur Medium"},       //
+    {14, "Deblur High"},         //
+    {15, "Deblur Ultra"},        //
+    {16, "HighBitrate Low"},     //
+    {17, "HighBitrate Medium"},  //
+    {18, "HighBitrate High"},    //
+    {19, "HighBitrate Ultra"},
+};
+static constexpr int kVSRModesCount = sizeof(kVSRModes) / sizeof(kVSRModes[0]);
+
+static const char* GetVSRModeName(unsigned int mode) {
+  for (int i = 0; i < kVSRModesCount; ++i) {
+    if (kVSRModes[i].mode == mode) {
+      return kVSRModes[i].name;
+    }
+  }
+  return "Unknown";
+}
+
 bool FLAG_debug = false, FLAG_verbose = false, FLAG_show = false, FLAG_progress = false, FLAG_webcam = false;
-float FLAG_strength = 0.f;
-int FLAG_mode = 0, FLAG_resolution = 0, FLAG_logLevel = NVCV_LOG_ERROR;
-std::string FLAG_codec = DEFAULT_CODEC, FLAG_camRes = "1280x720", FLAG_inFile, FLAG_outFile, FLAG_outDir, FLAG_modelDir,
-            FLAG_effect, FLAG_log = "stderr";
+int FLAG_mode = 0, FLAG_logLevel = NVCV_LOG_ERROR;
+std::string FLAG_codec = DEFAULT_CODEC, FLAG_camRes = "1280x720", FLAG_resolution, FLAG_inFile, FLAG_outFile,
+            FLAG_outDir, FLAG_modelDir, FLAG_effect, FLAG_log = "stderr";
 
 // Set this when using OTA Updates
 // This path is used by nvVideoEffectsProxy.cpp to load the SDK dll
@@ -135,14 +168,18 @@ static void Usage() {
       "  --in_file=<path>           input file to be processed\n"
       "  --webcam                   use a webcam as the input\n"
       "  --out_file=<path>          output file to be written\n"
-      "  --effect=<effect>          the effect to apply (Transfer, Upscale, SuperRes)\n"
+      "  --effect=<effect>          the effect to apply (Transfer, VideoSuperRes)\n"
       "  --show                     display the results in a window (for webcam, it is always true)\n"
-      "  --strength=<value>         strength of the upscaling effect, [0.0, 1.0]\n"
-      "  --mode=<value>             mode of the super res effect, 0 or 1, \n"
-      "                             where 0 - conservative and 1 - aggressive\n"
+      "  --mode=<value>             for VideoSuperRes: quality level (default: 0)\n"
+      "                             (0=VSR_Bicubic, 1=VSR_Low, 2=VSR_Medium, 3=VSR_High, 4=VSR_Ultra,\n"
+      "                              8=Denoise_Low, 9=Denoise_Medium, 10=Denoise_High, 11=Denoise_Ultra,\n"
+      "                              12=Deblur_Low, 13=Deblur_Medium, 14=Deblur_High, 15=Deblur_Ultra,\n"
+      "                              16=HighBitrate_Low, 17=HighBitrate_Medium, 18=HighBitrate_High, 19=HighBitrate_Ultra)\n"
+      "                             VideoSuperRes requires RGBA/BGRA U8 GPU images\n"
       "  --cam_res=[WWWx]HHH        specify camera resolution as height or width x height\n"
-      "                             supports 720 and 1080 resolutions (default \"720\") \n"
-      "  --resolution=<height>      the desired height of the output\n"
+      "                             (default \"1280x720\") \n"
+      "  --resolution=[WWWx]HHH     specify output resolution as height (e.g., 1080) or width x height (e.g., "
+      "1920x1080). Input and output resolution should match in denoise and deblur modes\n"
       "  --model_dir=<path>         the path to the directory that contains the models\n"
       "  --codec=<fourcc>           the fourcc code for the desired codec (default " DEFAULT_CODEC
       ")\n"
@@ -171,7 +208,6 @@ static int ParseMyArgs(int argc, char** argv) {
                 GetFlagArgVal("show", arg, &FLAG_show) ||              //
                 GetFlagArgVal("webcam", arg, &FLAG_webcam) ||          //
                 GetFlagArgVal("cam_res", arg, &FLAG_camRes) ||         //
-                GetFlagArgVal("strength", arg, &FLAG_strength) ||      //
                 GetFlagArgVal("mode", arg, &FLAG_mode) ||              //
                 GetFlagArgVal("resolution", arg, &FLAG_resolution) ||  //
                 GetFlagArgVal("model_dir", arg, &FLAG_modelDir) ||     //
@@ -225,6 +261,31 @@ static bool IsImageFile(const char* str) {
 }
 
 static bool IsLossyImageFile(const char* str) { return HasOneOfTheseSuffixes(str, ".jpg", ".jpeg", nullptr); }
+
+// Returns the next VSR mode, skipping denoise/deblur modes if upscaling
+static unsigned int GetNextVSRMode(unsigned int currentMode, bool isUpscale) {
+  // Find current mode index
+  int currentIdx = -1;
+  for (int i = 0; i < kVSRModesCount; ++i) {
+    if (kVSRModes[i].mode == currentMode) {
+      currentIdx = i;
+      break;
+    }
+  }
+  int nextIdx = (currentIdx + 1) % kVSRModesCount;
+  // Find next valid mode
+  for (int i = 0; i < kVSRModesCount; ++i) {
+    unsigned int mode = kVSRModes[nextIdx].mode;
+    // Skip denoise and deblur modes if upscaling
+    bool isDenoiseOrDeblur = (mode >= 8 && mode <= 15);
+    if (!isUpscale || !isDenoiseOrDeblur) {
+      return mode;
+    }
+    nextIdx = (nextIdx + 1) % kVSRModesCount;
+  }
+  // Fallback to Bicubic if no valid mode found
+  return 0;
+}
 
 static const char* DurationString(double sc) {
   static char buf[16];
@@ -319,7 +380,10 @@ struct FXApp {
     _showFPS = false;
     _progress = false;
     _show = false;
+    _nextModeRequested = false;
+    _toggleEffectRequested = false;
     _enableEffect = true, _drawVisualization = true, _framePeriod = 0.f;
+    _currentMode = 0;
   }
   ~FXApp() { NvVFX_DestroyEffect(_eff); }
 
@@ -334,6 +398,7 @@ struct FXApp {
   Err processKey(int key);
   void drawFrameRate(cv::Mat& img);
   void drawEffectStatus(cv::Mat& img);
+  void drawVSRMode(cv::Mat& img);
   Err appErrFromVfxStatus(NvCV_Status status) { return (Err)status; }
   const char* errorStringFromCode(Err code);
 
@@ -351,8 +416,11 @@ struct FXApp {
   bool _progress;
   bool _enableEffect;
   bool _drawVisualization;
+  bool _nextModeRequested;
+  bool _toggleEffectRequested;
   const char* _effectName;
   float _framePeriod;
+  unsigned int _currentMode;
   std::chrono::high_resolution_clock::time_point _lastTime;
 };
 
@@ -409,8 +477,13 @@ FXApp::Err FXApp::processKey(int key) {
     case 'P':
     case '%':
       _progress = !_progress;
+    case 'n':
+    case 'N':
+      _nextModeRequested = true;
+      break;
     case 'e':
     case 'E':
+      _toggleEffectRequested = true;
       break;
     case 'd':
     case 'D':
@@ -457,16 +530,25 @@ void FXApp::drawEffectStatus(cv::Mat& img) {
   cv::putText(img, buf, cv::Point(10, img.rows - 40), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 1);
 }
 
+void FXApp::drawVSRMode(cv::Mat& img) {
+  if (!strcmp(_effectName, NVVFX_FX_VIDEO_SUPER_RES)) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Mode: %s", GetVSRModeName(_currentMode));
+    cv::putText(img, buf, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 1);
+  }
+}
+
 FXApp::Err FXApp::createEffect(const char* effectSelector, const char* modelDir) {
   NvCV_Status vfxErr;
+
+  // Validate that the effect is supported by this sample app
+  if (strcmp(effectSelector, NVVFX_FX_TRANSFER) != 0 && strcmp(effectSelector, NVVFX_FX_VIDEO_SUPER_RES) != 0) {
+    printf("Error: Unsupported effect \"%s\". Supported effects are: Transfer, VideoSuperRes\n", effectSelector);
+    return errEffect;
+  }
+
   BAIL_IF_ERR(vfxErr = NvVFX_CreateEffect(effectSelector, &_eff));
   _effectName = effectSelector;
-  // Do not set NVVFX_MODEL_DIRECTORY for NVVFX_FX_SR_UPSCALE or NVVFX_FX_TRANSFER feature as it is not a valid selector
-  // for these features
-  if (modelDir[0] != '\0' &&
-      (strcmp(_effectName, NVVFX_FX_SR_UPSCALE) != 0 && strcmp(_effectName, NVVFX_FX_TRANSFER) != 0)) {
-    BAIL_IF_ERR(vfxErr = NvVFX_SetString(_eff, NVVFX_MODEL_DIRECTORY, modelDir));
-  }
 bail:
   return appErrFromVfxStatus(vfxErr);
 }
@@ -516,35 +598,23 @@ NvCV_Status FXApp::allocBuffers(unsigned width, unsigned height) {
                                          NVCV_GPU, 1));  // src GPU
     BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_dstGpuBuf, _dstImg.cols, _dstImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
                                          NVCV_GPU, 1));  // dst GPU
-  } else if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
-    if (!FLAG_resolution) {
+  } else if (!strcmp(_effectName, NVVFX_FX_VIDEO_SUPER_RES)) {
+    if (FLAG_resolution.empty()) {
       printf("--resolution has not been specified\n");
       return NVCV_ERR_PARAMETER;
     }
-    BAIL_IF_ERR(vfxErr = NvVFX_SetF32(_eff, NVVFX_STRENGTH, FLAG_strength));
-    int dstWidth = _srcImg.cols * FLAG_resolution / _srcImg.rows;
-    _dstImg.create(FLAG_resolution, dstWidth, _srcImg.type());  // dst CPU
-    BAIL_IF_NULL(_dstImg.data, vfxErr, NVCV_ERR_MEMORY);
-    BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_srcGpuBuf, _srcImg.cols, _srcImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
-                                         NVCV_GPU, 1));  // src GPU
-    BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_dstGpuBuf, _dstImg.cols, _dstImg.rows, NVCV_BGR, NVCV_F32, NVCV_PLANAR,
-                                         NVCV_GPU, 1));  // dst GPU
-    BAIL_IF_ERR(vfxErr = CheckScaleIsotropy(&_srcGpuBuf, &_dstGpuBuf));
-  } else if (!strcmp(_effectName, NVVFX_FX_SR_UPSCALE)) {
-    if (!FLAG_resolution) {
-      printf("--resolution has not been specified\n");
-      return NVCV_ERR_PARAMETER;
+    int dstWidth, dstHeight;
+    if (2 != sscanf(FLAG_resolution.c_str(), "%d%*[xX]%d", &dstWidth, &dstHeight)) {
+      dstHeight = std::stoi(FLAG_resolution);
+      dstWidth = _srcImg.cols * dstHeight / _srcImg.rows;
     }
-
-    BAIL_IF_ERR(vfxErr = NvVFX_SetF32(_eff, NVVFX_STRENGTH, FLAG_strength));
-    int dstWidth = _srcImg.cols * FLAG_resolution / _srcImg.rows;
-    _dstImg.create(FLAG_resolution, dstWidth, _srcImg.type());  // dst CPU
+    _dstImg.create(dstHeight, dstWidth, _srcImg.type());  // dst CPU
     BAIL_IF_NULL(_dstImg.data, vfxErr, NVCV_ERR_MEMORY);
+    // NGX VSR supports RGBA/BGRA U8 interleaved format on GPU
     BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_srcGpuBuf, _srcImg.cols, _srcImg.rows, NVCV_RGBA, NVCV_U8, NVCV_INTERLEAVED,
                                          NVCV_GPU, 32));  // src GPU
     BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_dstGpuBuf, _dstImg.cols, _dstImg.rows, NVCV_RGBA, NVCV_U8, NVCV_INTERLEAVED,
                                          NVCV_GPU, 32));  // dst GPU
-    BAIL_IF_ERR(vfxErr = CheckScaleIsotropy(&_srcGpuBuf, &_dstGpuBuf));
   }
   NVWrapperForCVMat(&_srcImg, &_srcVFX);  // _srcVFX is an alias for _srcImg
   NVWrapperForCVMat(&_dstImg, &_dstVFX);  // _dstVFX is an alias for _dstImg
@@ -564,6 +634,10 @@ bail:
 FXApp::Err FXApp::processImage(const char* inFile, const char* outFile) {
   CUstream stream = 0;
   NvCV_Status vfxErr;
+  // VideoSuperRes uses U8 buffers - no normalization needed
+  bool isVSR;
+  float inputScale, outputScale;
+  _currentMode = FLAG_mode;
 
   if (!_eff) return errEffect;
   _srcImg = cv::imread(inFile);
@@ -571,19 +645,24 @@ FXApp::Err FXApp::processImage(const char* inFile, const char* outFile) {
 
   BAIL_IF_ERR(vfxErr = allocBuffers(_srcImg.cols, _srcImg.rows));
 
+  isVSR = !strcmp(_effectName, NVVFX_FX_VIDEO_SUPER_RES);
+  inputScale = isVSR ? 1.f : (1.f / 255.f);
+  outputScale = isVSR ? 1.f : 255.f;
+
   // Since images are uploaded asynchronously, we may as well do this first.
-  BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcGpuBuf, 1.f / 255.f, stream,
+  BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcGpuBuf, inputScale, stream,
                                           &_tmpVFX));  // _srcVFX--> _tmpVFX --> _srcGpuBuf
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_INPUT_IMAGE, &_srcGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_OUTPUT_IMAGE, &_dstGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_eff, NVVFX_CUDA_STREAM, stream));
-  if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
-    BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_MODE, (unsigned int)FLAG_mode));
+  if (!strcmp(_effectName, NVVFX_FX_VIDEO_SUPER_RES)) {
+    BAIL_IF_ERR(vfxErr =
+                    NvVFX_SetU32(_eff, NVVFX_QUALITY_LEVEL, (unsigned int)FLAG_mode));  // Use mode as quality level
   }
 
   BAIL_IF_ERR(vfxErr = NvVFX_Load(_eff));
   BAIL_IF_ERR(vfxErr = NvVFX_Run(_eff, 0));  // _srcGpuBuf --> _dstGpuBuf
-  BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstGpuBuf, &_dstVFX, 255.f, stream,
+  BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstGpuBuf, &_dstVFX, outputScale, stream,
                                           &_tmpVFX));  // _dstGpuBuf --> _tmpVFX --> _dstVFX
 
   if (outFile && outFile[0]) {
@@ -594,6 +673,7 @@ FXApp::Err FXApp::processImage(const char* inFile, const char* outFile) {
     }
   }
   if (_show) {
+    drawVSRMode(_dstImg);
     cv::imshow("Output", _dstImg);
     cv::waitKey(3000);
   }
@@ -610,8 +690,12 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
   cv::VideoWriter writer;
   NvCV_Status vfxErr;
   unsigned frameNum;
+  _currentMode = FLAG_mode;
   VideoInfo info;
-
+  // VideoSuperRes uses U8 buffers - no normalization needed
+  bool isVSR;
+  float inputScale, outputScale;
+  bool isUpscale = false;
   if (inFile && !inFile[0]) inFile = nullptr;  // Set file paths to NULL if zero length
 
   if (!FLAG_webcam && inFile) {
@@ -646,13 +730,19 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
     }
   }
 
+  isUpscale = !(_srcVFX.width == _dstVFX.width && _srcVFX.height == _dstVFX.height);
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_INPUT_IMAGE, &_srcGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_OUTPUT_IMAGE, &_dstGpuBuf));
   BAIL_IF_ERR(vfxErr = NvVFX_SetCudaStream(_eff, NVVFX_CUDA_STREAM, stream));
-  if (!strcmp(_effectName, NVVFX_FX_SUPER_RES)) {
-    BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_MODE, (unsigned int)FLAG_mode));
+  if (!strcmp(_effectName, NVVFX_FX_VIDEO_SUPER_RES)) {
+    BAIL_IF_ERR(vfxErr =
+                    NvVFX_SetU32(_eff, NVVFX_QUALITY_LEVEL, (unsigned int)_currentMode));  // Use mode as quality level
   }
   BAIL_IF_ERR(vfxErr = NvVFX_Load(_eff));
+
+  isVSR = !strcmp(_effectName, NVVFX_FX_VIDEO_SUPER_RES);
+  inputScale = isVSR ? 1.f : (1.f / 255.f);
+  outputScale = isVSR ? 1.f : 255.f;
 
   for (frameNum = 0; reader.read(_srcImg); ++frameNum) {
     if (_srcImg.empty()) {
@@ -661,9 +751,9 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
 
     // _srcVFX   --> _srcTmpVFX --> _srcGpuBuf --> _dstGpuBuf --> _dstTmpVFX --> _dstVFX
     if (_enableEffect) {
-      BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcGpuBuf, 1.f / 255.f, stream, &_tmpVFX));
+      BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcGpuBuf, inputScale, stream, &_tmpVFX));
       BAIL_IF_ERR(vfxErr = NvVFX_Run(_eff, 0));
-      BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstGpuBuf, &_dstVFX, 255.f, stream, &_tmpVFX));
+      BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstGpuBuf, &_dstVFX, outputScale, stream, &_tmpVFX));
     } else {
       BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_dstVFX, 1.f / 255.f, stream, &_tmpVFX));
     }
@@ -672,12 +762,36 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
 
     if (_show) {
       drawFrameRate(_dstImg);
+      drawVSRMode(_dstImg);
       cv::imshow("Output", _dstImg);
       int key = cv::waitKey(1);
       if (key > 0) {
         appErr = processKey(key);
         if (errQuit == appErr) break;
       }
+    }
+    if (!strcmp(_effectName, NVVFX_FX_VIDEO_SUPER_RES) && _nextModeRequested) {
+      if (_enableEffect) {
+        unsigned int newMode = GetNextVSRMode(_currentMode, isUpscale);
+        if (newMode != _currentMode) {
+          _currentMode = newMode;
+          BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_QUALITY_LEVEL, _currentMode));
+          fprintf(stderr, "Switched to Video Super Resolution Quality Level: %u (%s)\n", _currentMode,
+                  GetVSRModeName(_currentMode));
+        }
+      } else {
+        fprintf(stderr, "Cannot switch quality level while effect is disabled\n");
+      }
+      _nextModeRequested = false;
+    }
+    if (_toggleEffectRequested) {
+      if (!isUpscale) {
+        _enableEffect = !_enableEffect;
+        fprintf(stderr, "Effect %s\n", _enableEffect ? "enabled" : "disabled");
+      } else {
+        fprintf(stderr, "Cannot disable effect while upscaling\n");
+      }
+      _toggleEffectRequested = false;
     }
     if (_progress) fprintf(stderr, "\b\b\b\b%3.0f%%", 100.f * frameNum / info.frameCount);
   }
