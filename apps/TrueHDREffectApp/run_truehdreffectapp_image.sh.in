@@ -1,0 +1,61 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+# TrueHDR image example. The bundled JPG has known dimensions; if you swap in a
+# different image, update WIDTH/HEIGHT to match. FPS=1 keeps the single-frame
+# packaged .mp4 open for ~1s in HDR10 players.
+IN=input1.jpg
+OUT=output_truehdr_image.r10
+MP4=output_truehdr_image.mp4
+WIDTH=1280
+HEIGHT=720
+FPS=1
+
+rm -f "$OUT" "$MP4"
+
+./TrueHDREffectApp --in_file=$IN --out_file=$OUT
+APP_RC=$?
+if [ "$APP_RC" -ne 0 ]; then
+    echo "TrueHDREffectApp failed (rc=$APP_RC)."
+    rm -f "$OUT" "$MP4"
+    exit "$APP_RC"
+fi
+if [ ! -e "$OUT" ]; then
+    echo "TrueHDREffectApp did not create the raw output \"$OUT\""
+    exit 1
+fi
+if [ ! -s "$OUT" ]; then
+    echo "TrueHDREffectApp created an empty raw output \"$OUT\""
+    rm -f "$OUT"
+    exit 1
+fi
+
+# Optional: package the raw .r10 into an HDR10-tagged HEVC .mp4 via ffmpeg.
+# ffmpeg is a SOFT dependency; package_hdr10 signals its state via exit code:
+#   0 = packaged (.mp4 exists and is non-empty)
+#   5 = soft-skip (ffmpeg missing or too old; no .mp4 produced)
+#   other nonzero = genuine failure (bad args / missing input / ffmpeg encode error)
+./package_hdr10.sh "$OUT" $WIDTH $HEIGHT $FPS
+PKG_RC=$?
+if [ "$PKG_RC" -eq 5 ]; then
+    # Legitimate soft-skip; helper already printed a non-fatal warning.
+    # No .mp4 was requested by the environment; fall through to success.
+    :
+elif [ "$PKG_RC" -ne 0 ]; then
+    echo "package_hdr10.sh failed (rc=$PKG_RC)."
+    exit "$PKG_RC"
+else
+    # Packaging path: helper claims it produced the .mp4. Enforce that.
+    if [ ! -e "$MP4" ]; then
+        echo "package_hdr10.sh returned 0 but did not create \"$MP4\"."
+        exit 1
+    fi
+    if [ ! -s "$MP4" ]; then
+        echo "package_hdr10.sh returned 0 but produced an empty \"$MP4\"."
+        rm -f "$MP4"
+        exit 1
+    fi
+fi
+
+echo "TrueHDR image run completed successfully. Raw output: \"$OUT\". Packaged output (if ffmpeg available): \"$MP4\"."

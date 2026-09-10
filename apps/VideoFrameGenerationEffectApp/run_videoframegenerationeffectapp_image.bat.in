@@ -1,0 +1,16 @@
+@ECHO OFF
+SETLOCAL
+SET "PATH=@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;%PATH%"
+
+REM VideoFrameGeneration image input example -- 10 bit + multiplier mode
+DEL /Q "out_1.png" "out_2.png" "out_3.png" 2>NUL
+VideoFrameGenerationEffectApp.exe --input_frame_prev=input_vfg_10bit_1.png --input_frame_current=input_vfg_10bit_2.png --output_frame_path=out.png --mode=medium --multiplier=4 --use_pinned_memory=true
+IF ERRORLEVEL 1 (
+  ECHO VideoFrameGenerationEffectApp failed in 10-bit image mode
+  DEL /Q "out_1.png" "out_2.png" "out_3.png" 2>NUL
+  EXIT /B 1
+)
+ECHO Output image: "out_1.png" was created successfully.
+ECHO Output image: "out_2.png" was created successfully.
+ECHO Output image: "out_3.png" was created successfully.
+EXIT /B 0

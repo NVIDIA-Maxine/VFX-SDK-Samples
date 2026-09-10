@@ -28,8 +28,10 @@
 #include <chrono>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "nvCVOpenCV.h"
+#include "unicodeUtf8Utils.h"
 #include "nvVFXUpscale.h"
 #include "nvVideoEffects.h"
 #include "opencv2/opencv.hpp"
@@ -111,21 +113,21 @@ static bool GetFlagArgVal(const char* flag, const char* arg, bool* val) {
 static bool GetFlagArgVal(const char* flag, const char* arg, float* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtof(valStr, NULL);
+  if (success && valStr) *val = strtof(valStr, NULL);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, long* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtol(valStr, NULL, 10);
+  if (success && valStr) *val = strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, int* val) {
-  long longVal;
-  bool success = GetFlagArgVal(flag, arg, &longVal);
-  if (success) *val = (int)longVal;
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (int)strtol(valStr, NULL, 10);
   return success;
 }
 
@@ -573,12 +575,16 @@ bail:
   return appErrFromVfxStatus(vfxErr);
 }
 
-int main(int argc, char** argv) {
+static int SamplesMain(int argc, char** argv) {
   int nErrs = 0;
   FXApp::Err fxErr = FXApp::errNone;
   FXApp app;
 
   nErrs = ParseMyArgs(argc, argv);
+  if (nErrs == NVCV_ERR_HELP) {
+    Usage();
+    return 0;
+  }
   if (nErrs) std::cerr << nErrs << " command line syntax problems\n";
 
   {
@@ -619,3 +625,19 @@ int main(int argc, char** argv) {
   if (fxErr) std::cerr << "Error: " << app.errorStringFromCode(fxErr) << std::endl;
   return (int)fxErr;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t* wargv[]) {
+  std::vector<std::string> u8args(argc);
+  std::vector<char*> u8argv(argc);
+  for (int i = 0; i < argc; ++i) {
+    u8args[i] = WideToUtf8(wargv[i]);
+    u8argv[i] = &u8args[i][0];
+  }
+  return SamplesMain(argc, u8argv.data());
+}
+#else
+int main(int argc, char** argv) {
+  return SamplesMain(argc, argv);
+}
+#endif

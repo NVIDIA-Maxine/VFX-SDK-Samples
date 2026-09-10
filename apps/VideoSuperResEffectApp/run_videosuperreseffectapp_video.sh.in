@@ -1,0 +1,82 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+INPUT_VIDEO=input_vsr_1.mp4
+# Due to OpenCV limitations in processing 10-bit video, the sample app supports 10-bit input through images only. To process 10-bit video, replace its OpenCV video decoding path with a decoder that preserves 10-bit frame data and pass those frames to the SDK.
+OUTPUT_VIDEO=output_vsr_video.mp4
+TEMP_VIDEO=output_vsr_video_temp.avi
+
+if [ -n "${1:-}" ] && [ "$1" != "--high-quality" ]; then
+    echo "Usage: $0 [--high-quality]"
+    exit 2
+fi
+
+# Default path - write H.264 directly without an intermediate or transcoding.
+if [ -z "${1:-}" ]; then
+    rm -f "$OUTPUT_VIDEO"
+    if ! ./VideoSuperResEffectApp \
+        --in_file="$INPUT_VIDEO" \
+        --out_file="$OUTPUT_VIDEO" \
+        --resolution=1080 \
+        --mode=3; then
+        echo "VideoSuperResEffectApp failed."
+        rm -f "$OUTPUT_VIDEO"
+        exit 1
+    fi
+    if [ ! -e "$OUTPUT_VIDEO" ]; then
+        echo "VideoSuperResEffectApp did not create the output video"
+        exit 1
+    fi
+    if [ ! -s "$OUTPUT_VIDEO" ]; then
+        echo "VideoSuperResEffectApp created an empty output video"
+        echo "Consider rerunning this script with --high-quality to encode the output with FFmpeg."
+        echo "Review README.md and install the required dependencies before using --high-quality."
+        rm -f "$OUTPUT_VIDEO"
+        exit 1
+    fi
+    echo "Output video: \"$OUTPUT_VIDEO\" was created successfully."
+    exit 0
+fi
+
+# High-quality path - upscale to a lossless intermediate before encoding with FFmpeg.
+rm -f "$TEMP_VIDEO"
+if ! ./VideoSuperResEffectApp \
+    --in_file="$INPUT_VIDEO" \
+    --out_file="$TEMP_VIDEO" \
+    --codec=ULRG \
+    --resolution=1080 \
+    --mode=3; then
+    echo "VideoSuperResEffectApp failed"
+    rm -f "$TEMP_VIDEO"
+    exit 1
+fi
+if [ ! -e "$TEMP_VIDEO" ]; then
+    echo "VideoSuperResEffectApp did not create the intermediate video"
+    exit 1
+fi
+if [ ! -s "$TEMP_VIDEO" ]; then
+    echo "VideoSuperResEffectApp created an empty intermediate video"
+    echo "Review README.md and verify that the required dependencies are installed."
+    rm -f "$TEMP_VIDEO"
+    exit 1
+fi
+
+# Encode the lossless intermediate as H.264.
+rm -f "$OUTPUT_VIDEO"
+if ! ffmpeg -hide_banner -loglevel error -y \
+    -i "$TEMP_VIDEO" -map 0:v:0 \
+    -c:v libx264 -crf 1 -pix_fmt yuv420p -an \
+    -movflags +faststart \
+    "$OUTPUT_VIDEO"; then
+    echo "ffmpeg failed while creating \"$OUTPUT_VIDEO\""
+    rm -f "$OUTPUT_VIDEO"
+    exit 1
+fi
+if [ ! -s "$OUTPUT_VIDEO" ]; then
+    echo "ffmpeg did not create a non-empty output video"
+    rm -f "$OUTPUT_VIDEO"
+    exit 1
+fi
+rm -f "$TEMP_VIDEO"
+echo "Output video: \"$OUTPUT_VIDEO\" was created successfully."

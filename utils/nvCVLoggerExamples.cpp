@@ -22,6 +22,7 @@
  */
 
 #include "nvCVLoggerExamples.h"
+#include "unicodeUtf8Utils.h"
 
 #include <string.h>
 
@@ -77,11 +78,7 @@ NvCV_Status FileLogger::init(const char* file, const char* mode) {
   }
   if (file) {  // If we want to start logging to a regular file, ...
     if (!mode) mode = "w";
-#ifndef _MSC_VER
-    m_fd = fopen(file, mode);  // ... open it
-#else                          // _MSC_VER
-    fopen_s(&m_fd, file, mode);  // ... open it
-#endif                         // _MSC_VER
+    m_fd = Utf8FileOpen(file, mode);
     if (!m_fd)                 // If we were not successful opening the file, ...
       err = NVCV_ERR_FILE;     // ... we indicate an error
   }
@@ -125,11 +122,7 @@ NvCV_Status FileThreadLogger::init(const char* file, const char* mode) {
   }
   m_fileName.clear();  // Forget any previously opened file
   if (file) {          // If we want to start logging to a regular file, ...
-#ifndef _MSC_VER
-    m_fd = fopen(file, (mode ? mode : "w"));  // ... open it
-#else                                         // _MSC_VER
-    fopen_s(&m_fd, file, (mode ? mode : "w"));  // ... open it
-#endif                                        // _MSC_VER
+    m_fd = Utf8FileOpen(file, (mode ? mode : "w"));
     if (m_fd) {                               // If we were successful opening the file, ...
       m_fileName = file;                      // ... remember it
     } else {                                  // Otherwise, we failed to open the file
@@ -219,11 +212,7 @@ NvCV_Status MultifileLogger::openLogFile(unsigned index) {
     fclose(m_fd);
     m_fd = nullptr;
   }
-#ifndef _MSC_VER
-  m_fd = fopen(file.c_str(), "wb");  // ... open it
-#else                                // _MSC_VER
-  n = fopen_s(&m_fd, file.c_str(), "wb");  // ... open it as binary to prevent Windows from adding CR
-#endif                               // _MSC_VER
+  m_fd = Utf8FileOpen(file.c_str(), "wb");
   m_currSize = 0;
   // if (!m_fd) fprintf(stderr, "Failed to open logfile \"%s\"\n", file.c_str());
   return m_fd ? NVCV_SUCCESS : NVCV_ERR_FILE;

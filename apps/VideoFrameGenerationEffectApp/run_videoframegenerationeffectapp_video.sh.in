@@ -1,0 +1,139 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+INPUT_VIDEO=input_vfg.mp4
+# Due to OpenCV limitations in processing 10-bit video, the sample app supports 10-bit input through images only. To process 10-bit video, replace its OpenCV video decoding path with a decoder that preserves 10-bit frame data and pass those frames to the SDK.
+
+if [ -n "${1:-}" ] && [ "$1" != "--high-quality" ]; then
+    echo "Usage: $0 [--high-quality]"
+    exit 2
+fi
+
+encode_output() {
+    temp_video=$1
+    output_video=$2
+
+    validate_output "$temp_video" check_dependencies || return 1
+    rm -f "$output_video"
+
+    # Encode the lossless intermediate as H.264.
+    if ! ffmpeg -hide_banner -loglevel error -y \
+        -i "$temp_video" -map 0:v:0 \
+        -c:v libx264 -crf 1 -pix_fmt yuv420p -an \
+        -movflags +faststart \
+        "$output_video"; then
+        echo "ffmpeg failed while creating \"$output_video\""
+        rm -f "$output_video"
+        return 1
+    fi
+
+    validate_output "$output_video" || return 1
+    rm -f "$temp_video"
+    echo "Output video: \"$output_video\" was created successfully."
+}
+
+validate_output() {
+    output_path=$1
+    validation_action=${2:-none}
+    if [ ! -e "$output_path" ]; then
+        echo "Expected output \"$output_path\" was not created"
+        return 1
+    fi
+    if [ ! -s "$output_path" ]; then
+        echo "Expected output \"$output_path\" is empty"
+        if [ "$validation_action" = true ]; then
+            echo "Consider rerunning this script with --high-quality to encode the output with FFmpeg."
+            echo "Review README.md and install the required dependencies before using --high-quality."
+        fi
+        if [ "$validation_action" = check_dependencies ]; then
+            echo "Review README.md and verify that the required dependencies are installed."
+        fi
+        rm -f "$output_path"
+        return 1
+    fi
+}
+
+if [ -z "${1:-}" ]; then
+    # Default video examples -- write H.264 directly through OpenCV.
+    rm -f output_vfg_multiplier.mp4
+    if ! ./VideoFrameGenerationEffectApp \
+        --in_file="$INPUT_VIDEO" \
+        --out_file=output_vfg_multiplier.mp4 \
+        --mode=medium \
+        --multiplier=4; then
+        echo "VideoFrameGenerationEffectApp failed in multiplier mode"
+        rm -f output_vfg_multiplier.mp4
+        exit 1
+    fi
+    validate_output output_vfg_multiplier.mp4 true || exit 1
+    echo "Output video: \"output_vfg_multiplier.mp4\" was created successfully."
+
+    rm -f output_vfg_timesteps.mp4
+    if ! ./VideoFrameGenerationEffectApp \
+        --in_file="$INPUT_VIDEO" \
+        --out_file=output_vfg_timesteps.mp4 \
+        --mode=medium \
+        --timesteps=0.3,0.5,0.8; then
+        echo "VideoFrameGenerationEffectApp failed in timestep mode"
+        rm -f output_vfg_timesteps.mp4
+        exit 1
+    fi
+    validate_output output_vfg_timesteps.mp4 true || exit 1
+    echo "Output video: \"output_vfg_timesteps.mp4\" was created successfully."
+
+    rm -f output_vfg_pinned_memory.mp4
+    if ! ./VideoFrameGenerationEffectApp \
+        --in_file="$INPUT_VIDEO" \
+        --out_file=output_vfg_pinned_memory.mp4 \
+        --mode=medium \
+        --multiplier=4 \
+        --use_pinned_memory=true; then
+        echo "VideoFrameGenerationEffectApp failed in pinned-memory mode"
+        rm -f output_vfg_pinned_memory.mp4
+        exit 1
+    fi
+    validate_output output_vfg_pinned_memory.mp4 true || exit 1
+    echo "Output video: \"output_vfg_pinned_memory.mp4\" was created successfully."
+else
+    # High-quality video examples -- write lossless intermediates and encode with FFmpeg.
+    rm -f output_vfg_multiplier_temp.avi
+    if ! ./VideoFrameGenerationEffectApp \
+        --in_file="$INPUT_VIDEO" \
+        --out_file=output_vfg_multiplier_temp.avi \
+        --codec=ULRG \
+        --mode=medium \
+        --multiplier=4; then
+        echo "VideoFrameGenerationEffectApp failed in multiplier mode"
+        rm -f output_vfg_multiplier_temp.avi
+        exit 1
+    fi
+    encode_output output_vfg_multiplier_temp.avi output_vfg_multiplier.mp4 || exit 1
+
+    rm -f output_vfg_timesteps_temp.avi
+    if ! ./VideoFrameGenerationEffectApp \
+        --in_file="$INPUT_VIDEO" \
+        --out_file=output_vfg_timesteps_temp.avi \
+        --codec=ULRG \
+        --mode=medium \
+        --timesteps=0.3,0.5,0.8; then
+        echo "VideoFrameGenerationEffectApp failed in timestep mode"
+        rm -f output_vfg_timesteps_temp.avi
+        exit 1
+    fi
+    encode_output output_vfg_timesteps_temp.avi output_vfg_timesteps.mp4 || exit 1
+
+    rm -f output_vfg_pinned_memory_temp.avi
+    if ! ./VideoFrameGenerationEffectApp \
+        --in_file="$INPUT_VIDEO" \
+        --out_file=output_vfg_pinned_memory_temp.avi \
+        --codec=ULRG \
+        --mode=medium \
+        --multiplier=4 \
+        --use_pinned_memory=true; then
+        echo "VideoFrameGenerationEffectApp failed in pinned-memory mode"
+        rm -f output_vfg_pinned_memory_temp.avi
+        exit 1
+    fi
+    encode_output output_vfg_pinned_memory_temp.avi output_vfg_pinned_memory.mp4 || exit 1
+fi

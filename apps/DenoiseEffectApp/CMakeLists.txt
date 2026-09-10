@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: MIT
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
@@ -23,7 +23,7 @@
 # DenoiseEffectApp #
 ####################
 
-set(REQUIRED_FEATURES nvVFXDenoising:1.2.0.0)
+set(REQUIRED_FEATURES nvVFXDenoising:1.3.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -42,12 +42,16 @@ else()
     setup_env.sh)
 endif()
 
-set(SOURCE_FILES DenoiseEffectApp.cpp)
+set(SOURCE_FILES
+  DenoiseEffectApp.cpp
+  ${VFXSDKSampleApps_UTILS_DIR}/unicodeUtf8Utils.cpp)
 
 add_executable(DenoiseEffectApp README.md ${SOURCE_FILES})
 
 if(TARGET OpenCV)
   set(OPENCV OpenCV)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64|aarch64")
+  set(OPENCV opencv4120)
 else()
   set(OPENCV opencv346)
 endif()

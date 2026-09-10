@@ -1,0 +1,63 @@
+@ECHO OFF
+SETLOCAL
+SET "PATH=@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;%PATH%"
+
+REM TrueHDR image example. The bundled JPG has known dimensions; if you swap in a
+REM different image, update WIDTH/HEIGHT to match. FPS=1 keeps the single-frame
+REM packaged .mp4 open for ~1s in HDR10 players.
+SET "IN=input1.jpg"
+SET "OUT=output_truehdr_image.r10"
+SET "MP4=output_truehdr_image.mp4"
+SET "WIDTH=1280"
+SET "HEIGHT=720"
+SET "FPS=1"
+
+DEL /Q "%OUT%" 2>NUL
+DEL /Q "%MP4%" 2>NUL
+
+TrueHDREffectApp.exe --in_file=%IN% --out_file=%OUT%
+SET "APP_RC=%ERRORLEVEL%"
+IF NOT "%APP_RC%"=="0" (
+    ECHO TrueHDREffectApp failed ^(rc=%APP_RC%^).
+    DEL /Q "%OUT%" 2>NUL
+    DEL /Q "%MP4%" 2>NUL
+    ENDLOCAL & EXIT /B %APP_RC%
+)
+IF NOT EXIST "%OUT%" (
+    ECHO TrueHDREffectApp did not create the raw output "%OUT%"
+    ENDLOCAL & EXIT /B 1
+)
+FOR %%A IN ("%OUT%") DO IF %%~zA EQU 0 (
+    ECHO TrueHDREffectApp created an empty raw output "%OUT%"
+    DEL /Q "%OUT%" 2>NUL
+    ENDLOCAL & EXIT /B 1
+)
+
+REM Optional: package the raw .r10 into an HDR10-tagged HEVC .mp4 via ffmpeg.
+REM ffmpeg is a SOFT dependency; package_hdr10 signals its state via exit code:
+REM   0 = packaged (.mp4 exists and is non-empty)
+REM   5 = soft-skip (ffmpeg missing or too old; no .mp4 produced)
+REM   other nonzero = genuine failure (bad args / missing input / ffmpeg encode error)
+CALL package_hdr10.bat "%OUT%" %WIDTH% %HEIGHT% %FPS%
+SET "PKG_RC=%ERRORLEVEL%"
+IF "%PKG_RC%"=="5" (
+    REM Legitimate soft-skip; helper already printed a non-fatal warning.
+    REM No .mp4 was requested by the environment; fall through to success.
+) ELSE IF NOT "%PKG_RC%"=="0" (
+    ECHO package_hdr10.bat failed ^(rc=%PKG_RC%^).
+    ENDLOCAL & EXIT /B %PKG_RC%
+) ELSE (
+    REM Packaging path: helper claims it produced the .mp4. Enforce that.
+    IF NOT EXIST "%MP4%" (
+        ECHO package_hdr10.bat returned 0 but did not create "%MP4%".
+        ENDLOCAL & EXIT /B 1
+    )
+    FOR %%A IN ("%MP4%") DO IF %%~zA EQU 0 (
+        ECHO package_hdr10.bat returned 0 but produced an empty "%MP4%".
+        DEL /Q "%MP4%" 2>NUL
+        ENDLOCAL & EXIT /B 1
+    )
+)
+
+ECHO TrueHDR image run completed successfully. Raw output: "%OUT%". Packaged output (if ffmpeg available): "%MP4%".
+ENDLOCAL & EXIT /B 0

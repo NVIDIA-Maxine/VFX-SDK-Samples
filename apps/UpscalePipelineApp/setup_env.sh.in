@@ -2,7 +2,7 @@
 # for running the sample apps
 
 findpath() {
-    # findpath "descriptive error text" <something-that-must-exist> <locations-to-look>...
+    # findpath "descriptive error text" something-that-must-exist locations-to-look...
     # used to find a library based on files that should exist in that location
     err_desc="$1"
     req_file="$2"
@@ -11,7 +11,7 @@ findpath() {
     do
         if [ -e "$prefix/$req_file" ]
         then
-            echo $prefix
+            echo $(cd $prefix; pwd)
             return
         fi
     done
@@ -23,7 +23,7 @@ add_ldlibpath() {
     if [ -n "$1" ]
     then
         case "$LD_LIBRARY_PATH" in
-            *:"$1":* | *:"$1" | "$1":* );;
+            "$1" | *:"$1":* | *:"$1" | "$1":* );;
             "") export LD_LIBRARY_PATH="$1";;
             *) export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$1";;
         esac
@@ -34,30 +34,30 @@ findfeaturelibpaths() {
     # findfeaturelibpaths "SDK_ROOT"
     # Finds all features within SDK_ROOT, and adds SDK_ROOT/features/<feature>/lib for all features
     sdk_root="$1"
-    
+
     if [ -z "$sdk_root" ]; then
         echo "Error: SDK_ROOT parameter is required" 1>&2
         return 1
     fi
-    
+
     if [ ! -d "$sdk_root" ]; then
         echo "Error: SDK_ROOT directory '$sdk_root' does not exist" 1>&2
         return 1
     fi
-    
+
     features_dir="$sdk_root/features"
     if [ ! -d "$features_dir" ]; then
         echo "Warning: Features directory '$features_dir' does not exist" 1>&2
         return 0
     fi
-    
+
     # Find all subdirectories in features directory and build colon-separated list
     feature_paths=""
     for feature_dir in "$features_dir"/*; do
         if [ -d "$feature_dir" ]; then
             feature_name=$(basename "$feature_dir")
             lib_dir="$feature_dir/lib"
-            
+
             if [ -d "$lib_dir" ]; then
                 if [ -z "$feature_paths" ]; then
                     feature_paths="$lib_dir"
@@ -67,7 +67,7 @@ findfeaturelibpaths() {
             fi
         fi
     done
-    
+
     echo "$feature_paths"
 }
 
@@ -75,13 +75,19 @@ findfeaturelibpaths() {
 # 7.2.2.3 -> 7.2.2
 _TRT_VER_SHORT=$(echo "@REQUIRED_TENSORRT_VER@" | sed 's/^\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)\..*/\1.\2\.\3/')
 
-_CUDALIB=`findpath  "Cuda @REQUIRED_CUDA_VER@"   libcudart.so \
+_CUDALIB=`findpath "Cuda @REQUIRED_CUDA_VER@" libcudart.so \
     $CUDA_TOOLKIT \
     /usr/local/VideoFX/external/cuda/lib \
     /usr/local/cuda-@REQUIRED_CUDA_VER@/lib64 \
     /usr/lib/x86_64-linux-gnu \
     /usr/lib64`
 add_ldlibpath "$_CUDALIB"
+
+# On WSL, libcuda.so (the driver library) lives in /usr/lib/wsl/lib/ which is
+# outside the standard linker search paths.
+if [ -e /usr/lib/wsl/lib/libcuda.so ]; then
+    add_ldlibpath "/usr/lib/wsl/lib"
+fi
 
 _TRTLIB=`findpath  "TensorRT @REQUIRED_TENSORRT_VER@"  libnvinfer.so.${_TRT_VER_SHORT} \
     $TensorRT_DIR \
@@ -111,8 +117,17 @@ _VFX_MODELS=`findpath  "VideoFX models" . \
     /usr/share/libvideofx/models \
     /usr/local/VideoFX/lib/models`
 
+if [ -x ../../extras/bin/ffmpeg ]
+then
+    # if apps use ffmpeg built from source on rhel
+    _EXTRAS=$(cd ../../extras;pwd)
+    export PATH=$_EXTRAS/bin:$PATH
+    add_ldlibpath "$_EXTRAS/lib"
+    add_ldlibpath "$_EXTRAS/lib64"
+fi
+
 # Find feature library paths and add them to LD_LIBRARY_PATH
-_VFX_ROOT=$_VFX_LIB/..
+_VFX_ROOT=$(cd $_VFX_LIB/..;pwd)
 _FEATURE_PATHS=`findfeaturelibpaths "$_VFX_ROOT"`
 
 add_ldlibpath "$_FEATURE_PATHS"

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: MIT
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,7 +35,7 @@ endif()
 # BatchEffectApp #
 ##################
 
-set(REQUIRED_FEATURES nvVFXUpscale:1.2.0.0 nvVFXTransfer:1.2.0.0)
+set(REQUIRED_FEATURES nvVFXUpscale:1.3.0.0 nvVFXTransfer:1.3.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -47,12 +47,15 @@ endforeach()
 set(BATCHEFFECTAPP_SRCS
   BatchEffectApp.cpp
   ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.cpp
-  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.h)
+  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.h
+  ${VFXSDKSampleApps_UTILS_DIR}/unicodeUtf8Utils.cpp)
 
 add_executable(BatchEffectApp README.md ${BATCHEFFECTAPP_SRCS})
 
 if(TARGET OpenCV)
   set(OPENCV OpenCV)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64|aarch64")
+  set(OPENCV opencv4120)
 else()
   set(OPENCV opencv346)
 endif()
@@ -111,7 +114,7 @@ endforeach()
 # BatchDenoiseEffectApp #
 #########################
 
-set(REQUIRED_FEATURES nvVFXDenoising:1.2.0.0)
+set(REQUIRED_FEATURES nvVFXDenoising:1.3.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -123,7 +126,8 @@ endforeach()
 set(BATCHDENOISEEFFECTAPP_SRCS
   BatchDenoiseEffectApp.cpp
   ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.cpp
-  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.h)
+  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.h
+  ${VFXSDKSampleApps_UTILS_DIR}/unicodeUtf8Utils.cpp)
 
 add_executable(BatchDenoiseEffectApp README.md ${BATCHDENOISEEFFECTAPP_SRCS})
 
@@ -179,7 +183,7 @@ endforeach()
 # BatchAigsEffectApp #
 ######################
 
-set(REQUIRED_FEATURES nvVFXGreenScreen:1.2.0.0)
+set(REQUIRED_FEATURES nvVFXGreenScreen:1.3.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -191,7 +195,8 @@ endforeach()
 set(BATCHAIGSEFFECTAPP_SRCS
   BatchAigsEffectApp.cpp
   ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.cpp
-  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.h)
+  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.h
+  ${VFXSDKSampleApps_UTILS_DIR}/unicodeUtf8Utils.cpp)
 
 add_executable(BatchAigsEffectApp README.md ${BATCHAIGSEFFECTAPP_SRCS})
 

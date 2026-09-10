@@ -27,6 +27,7 @@
 
 #include "batchUtilities.h"
 #include "nvCVOpenCV.h"
+#include "unicodeUtf8Utils.h"
 #include "nvVFXGreenScreen.h"
 #include "nvVideoEffects.h"
 #include "opencv2/opencv.hpp"
@@ -56,6 +57,7 @@
     err = code;         \
     goto bail;          \
   } while (0)
+#define NVCV_ERR_HELP 411
 
 #define DEFAULT_CODEC "avc1"
 
@@ -110,21 +112,21 @@ static bool GetFlagArgVal(const char* flag, const char* arg, bool* val) {
 static bool GetFlagArgVal(const char* flag, const char* arg, long* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtol(valStr, NULL, 10);
+  if (success && valStr) *val = strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, int* val) {
-  long longVal;
-  bool success = GetFlagArgVal(flag, arg, &longVal);
-  if (success) *val = (int)longVal;
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (int)strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, float* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtof(valStr, NULL);
+  if (success && valStr) *val = strtof(valStr, NULL);
   return success;
 }
 
@@ -177,8 +179,7 @@ static int ParseMyArgs(int argc, char** argv) {
             GetFlagArgVal("codec", arg, &FLAG_codec)) {
           continue;
         } else if (GetFlagArgVal("help", arg, &help)) {  // --help
-          Usage();
-          errs = 1;
+          return NVCV_ERR_HELP;
         }
       } else {  // single dash
         for (++arg; *arg; ++arg) {
@@ -427,11 +428,15 @@ bail:
   return err;
 }
 
-int main(int argc, char** argv) {
+static int SamplesMain(int argc, char** argv) {
   int nErrs;
   NvCV_Status vfxErr;
 
   nErrs = ParseMyArgs(argc, argv);
+  if (nErrs == NVCV_ERR_HELP) {
+    Usage();
+    return 0;
+  }
   if (nErrs) return nErrs;
 
   vfxErr = NvVFX_ConfigureLogger(FLAG_logLevel, FLAG_log.c_str(), nullptr, nullptr);
@@ -455,3 +460,19 @@ int main(int argc, char** argv) {
 
   return nErrs;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t* wargv[]) {
+  std::vector<std::string> u8args(argc);
+  std::vector<char*> u8argv(argc);
+  for (int i = 0; i < argc; ++i) {
+    u8args[i] = WideToUtf8(wargv[i]);
+    u8argv[i] = &u8args[i][0];
+  }
+  return SamplesMain(argc, u8argv.data());
+}
+#else
+int main(int argc, char** argv) {
+  return SamplesMain(argc, argv);
+}
+#endif

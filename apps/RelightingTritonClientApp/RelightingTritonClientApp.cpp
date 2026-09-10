@@ -28,8 +28,10 @@
 #include <chrono>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "nvCVOpenCV.h"
+#include "unicodeUtf8Utils.h"
 #include "nvVFXRelighting.h"
 #include "nvVideoEffects.h"
 #include "opencv2/opencv.hpp"
@@ -40,6 +42,10 @@
 #ifdef _MSC_VER
 #define strcasecmp _stricmp
 #endif  // _MSC_VER
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 #define BAIL_IF_ERR(err) \
   do {                   \
@@ -139,21 +145,21 @@ static bool GetFlagArgVal(const char* flag, const char* arg, bool* val) {  // bo
 static bool GetFlagArgVal(const char* flag, const char* arg, float* val) {  // float
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtof(valStr, NULL);
+  if (success && valStr) *val = strtof(valStr, NULL);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, long* val) {  // long
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtol(valStr, NULL, 10);
+  if (success && valStr) *val = strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, int* val) {  // int
-  long longVal;
-  bool success = GetFlagArgVal(flag, arg, &longVal);
-  if (success) *val = (int)longVal;
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (int)strtol(valStr, NULL, 10);
   return success;
 }
 
@@ -459,33 +465,33 @@ class DirectoryIterator {
 };
 
 #ifdef _MSC_VER  //////////////////////////////////////// WINDOWS ////////////////////////////////////////
-#include <Windows.h>
 struct DirectoryIterator::Impl {
   HANDLE h;
   unsigned which;
   bool first;
-  WIN32_FIND_DATAA data;
+  WIN32_FIND_DATAW data;
+  std::string u8name;
 };
 DirectoryIterator::DirectoryIterator() {
   pimpl = new DirectoryIterator::Impl;
-  pimpl->h = nullptr;
+  pimpl->h = INVALID_HANDLE_VALUE;
 }
 DirectoryIterator::DirectoryIterator(const char* path, unsigned iterateWhat) : DirectoryIterator() {
   (void)init(path, iterateWhat);
 }
 DirectoryIterator::~DirectoryIterator() {
   if (pimpl) {
-    if (pimpl->h) FindClose(pimpl->h);
+    if (pimpl->h != INVALID_HANDLE_VALUE) FindClose(pimpl->h);
     delete pimpl;
   }
 }
 NvCV_Status DirectoryIterator::init(const char* path, unsigned iterateWhat) {
-  DWORD attributes = GetFileAttributesA(path);
+  std::wstring wpath = Utf8ToWide(path);
+  DWORD attributes = GetFileAttributesW(wpath.c_str());
   if (INVALID_FILE_ATTRIBUTES == attributes) return NVCV_ERR_FILE;
   if (!(FILE_ATTRIBUTE_DIRECTORY & attributes)) return NVCV_ERR_PARAMETER;
-  std::string pathStar = path;
-  pathStar += "\\*";
-  if (nullptr == (pimpl->h = FindFirstFileA(pathStar.c_str(), &pimpl->data))) return NVCV_ERR_FILE;
+  wpath += L"\\*";
+  if (INVALID_HANDLE_VALUE == (pimpl->h = FindFirstFileW(wpath.c_str(), &pimpl->data))) return NVCV_ERR_FILE;
   pimpl->which = iterateWhat ? iterateWhat : typeAll;
   pimpl->first = true;
   return NVCV_SUCCESS;
@@ -495,12 +501,13 @@ NvCV_Status DirectoryIterator::next(const char** pName, unsigned* type) {
   while (1) {
     if (pimpl->first) {
       pimpl->first = false;
-    } else if (!FindNextFileA(pimpl->h, &pimpl->data)) {
+    } else if (!FindNextFileW(pimpl->h, &pimpl->data)) {
       *pName = nullptr;
       if (type) *type = 0;
       return NVCV_ERR_EOF;
     }
-    *pName = pimpl->data.cFileName;
+    pimpl->u8name = WideToUtf8(pimpl->data.cFileName);
+    *pName = pimpl->u8name.c_str();
     if (0 != (pimpl->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
       if (pimpl->which & typeDirectory) {
         if (type) *type = typeDirectory;
@@ -588,7 +595,8 @@ NvCV_Status DirectoryIterator::next(const char** pName, unsigned* type) {
 /// @return {0, 1, 2} for no {error, file, directory}
 static int FileType(const char* file) {
 #ifdef _MSC_VER
-  DWORD attr = GetFileAttributesA(file);
+  std::wstring wfile = Utf8ToWide(file);
+  DWORD attr = GetFileAttributesW(wfile.c_str());
   if (attr == INVALID_FILE_ATTRIBUTES) return 0;
   if (attr & FILE_ATTRIBUTE_DIRECTORY) return 2;
   if (attr & (FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_COMPRESSED |
@@ -1174,14 +1182,16 @@ bail:
   return app_errFromVfxStatus(err);
 }
 
-int main(int argc, char** argv) {
+static int SamplesMain(int argc, char** argv) {
   int nErrs = 0;
   RelightApp::Err err = RelightApp::errNone;
   RelightApp app;
 
   nErrs = ParseMyArgs(argc, argv);
+  if (nErrs == NVCV_ERR_HELP) {
+    return 0;  // Usage() already printed in ParseMyArgs
+  }
   if (nErrs) {
-    if (NVCV_ERR_HELP == nErrs) return nErrs;
     std::cerr << nErrs << " command line syntax problems\n";
   }
 
@@ -1226,3 +1236,19 @@ int main(int argc, char** argv) {
   if (err) std::cerr << "Error: " << app.errorStringFromCode(err) << std::endl;
   return int(err);
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t* wargv[]) {
+  std::vector<std::string> u8args(argc);
+  std::vector<char*> u8argv(argc);
+  for (int i = 0; i < argc; ++i) {
+    u8args[i] = WideToUtf8(wargv[i]);
+    u8argv[i] = &u8args[i][0];
+  }
+  return SamplesMain(argc, u8argv.data());
+}
+#else
+int main(int argc, char** argv) {
+  return SamplesMain(argc, argv);
+}
+#endif

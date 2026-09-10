@@ -1,0 +1,71 @@
+@ECHO OFF
+SETLOCAL
+SET "PATH=@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;%PATH%"
+
+SET "INPUT_VIDEO=input_vsr_1.mp4"
+REM Due to OpenCV limitations in processing 10-bit video, the sample app supports 10-bit input through images only. To process 10-bit video, replace its OpenCV video decoding path with a decoder that preserves 10-bit frame data and pass those frames to the SDK.
+SET "OUTPUT_VIDEO=output_vsr_video.mp4"
+SET "TEMP_VIDEO=output_vsr_video_temp.avi"
+
+IF /I "%~1"=="--high-quality" GOTO HIGH_QUALITY
+IF NOT "%~1"=="" (
+  ECHO Usage: %~nx0 [--high-quality]
+  EXIT /B 2
+)
+
+REM Default path - write H.264 directly without an intermediate or transcoding.
+DEL /Q "%OUTPUT_VIDEO%" 2>NUL
+VideoSuperResEffectApp.exe --in_file="%INPUT_VIDEO%" --out_file="%OUTPUT_VIDEO%" --resolution=1080 --mode=3 --show
+IF ERRORLEVEL 1 (
+  ECHO VideoSuperResEffectApp failed.
+  DEL /Q "%OUTPUT_VIDEO%" 2>NUL
+  EXIT /B 1
+)
+CALL :VALIDATE_OUTPUT "%OUTPUT_VIDEO%" SUGGEST_FFMPEG
+IF ERRORLEVEL 1 EXIT /B 1
+ECHO Output video: "%OUTPUT_VIDEO%" was created successfully.
+EXIT /B 0
+
+:HIGH_QUALITY
+REM High-quality path - upscale to a lossless intermediate before encoding with FFmpeg.
+DEL /Q "%TEMP_VIDEO%" 2>NUL
+VideoSuperResEffectApp.exe --in_file="%INPUT_VIDEO%" --out_file="%TEMP_VIDEO%" --codec=ULRG --resolution=1080 --mode=3 --show
+IF ERRORLEVEL 1 (
+  ECHO VideoSuperResEffectApp failed
+  DEL /Q "%TEMP_VIDEO%" 2>NUL
+  EXIT /B 1
+)
+CALL :VALIDATE_OUTPUT "%TEMP_VIDEO%" CHECK_DEPENDENCIES
+IF ERRORLEVEL 1 EXIT /B 1
+
+REM Encode the lossless intermediate as H.264.
+DEL /Q "%OUTPUT_VIDEO%" 2>NUL
+ffmpeg.exe -hide_banner -loglevel error -y -i "%TEMP_VIDEO%" -map 0:v:0 -c:v libx264 -crf 1 -pix_fmt yuv420p -an -movflags +faststart "%OUTPUT_VIDEO%"
+IF ERRORLEVEL 1 (
+  ECHO ffmpeg failed while creating "%OUTPUT_VIDEO%"
+  DEL /Q "%OUTPUT_VIDEO%" 2>NUL
+  EXIT /B 1
+)
+CALL :VALIDATE_OUTPUT "%OUTPUT_VIDEO%"
+IF ERRORLEVEL 1 EXIT /B 1
+
+DEL /Q "%TEMP_VIDEO%"
+ECHO Output video: "%OUTPUT_VIDEO%" was created successfully.
+EXIT /B 0
+
+:VALIDATE_OUTPUT
+IF NOT EXIST "%~1" (
+  ECHO Expected output "%~1" was not created
+  EXIT /B 1
+)
+FOR %%A IN ("%~1") DO IF %%~zA EQU 0 (
+  ECHO Expected output "%~1" is empty
+  IF /I "%~2"=="SUGGEST_FFMPEG" (
+    ECHO Consider rerunning this script with --high-quality to encode the output with FFmpeg.
+    ECHO Review README.md and install the required dependencies before using --high-quality.
+  )
+  IF /I "%~2"=="CHECK_DEPENDENCIES" ECHO Review README.md and verify that the required dependencies are installed.
+  DEL /Q "%~1" 2>NUL
+  EXIT /B 1
+)
+EXIT /B 0

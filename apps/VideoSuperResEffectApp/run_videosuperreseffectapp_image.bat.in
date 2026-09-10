@@ -1,0 +1,13 @@
+@ECHO OFF
+SETLOCAL
+SET "PATH=@OPENCV_PATH_STR@;@NVVFX_DYNAMIC_LIBRARY_DIRS@;%PATH%"
+REM VideoSuperRes image example - upscales a single image
+DEL /Q "output_vsr_image.png" 2>NUL
+VideoSuperResEffectApp.exe --in_file=input_vsr_2.png --out_file=output_vsr_image.png --resolution=1080 --mode=3 --show
+IF ERRORLEVEL 1 (
+  ECHO VideoSuperResEffectApp image test failed.
+  DEL /Q "output_vsr_image.png" 2>NUL
+  EXIT /B 1
+)
+ECHO Output image: "output_vsr_image.png" was created successfully.
+EXIT /B 0

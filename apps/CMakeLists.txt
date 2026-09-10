@@ -52,7 +52,8 @@ file(GLOB APP_DIRS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*App")
 # Build all discovered sample applications
 # Triton client apps are only built if ENABLE_TRITON is ON (Unix/Linux only)
 foreach(APP_DIR ${APP_DIRS})
-  if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${APP_DIR})
+  # Only descend into directories that actually contain a CMakeLists.txt.
+  if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${APP_DIR} AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${APP_DIR}/CMakeLists.txt)
     string(TOLOWER ${APP_DIR} APP_DIR_LOWER)
     if(APP_DIR_LOWER MATCHES "triton")
       if(ENABLE_TRITON)

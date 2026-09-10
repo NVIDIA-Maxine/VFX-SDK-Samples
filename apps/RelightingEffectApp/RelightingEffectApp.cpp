@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -28,8 +28,10 @@
 #include <chrono>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "nvCVOpenCV.h"
+#include "unicodeUtf8Utils.h"
 #include "nvVFXBackgroundBlur.h"
 #include "nvVFXGreenScreen.h"
 #include "nvVFXRelighting.h"
@@ -39,6 +41,10 @@
 #ifdef _MSC_VER
 #define strcasecmp _stricmp
 #endif  // _MSC_VER
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 #define BAIL_IF_ERR(err) \
   do {                   \
@@ -78,7 +84,8 @@
 #define BGMODE_BG 3
 #define BGMODE_BG_BLURRED 4
 
-bool FLAG_debug = false, FLAG_verbose = false, FLAG_show = false, FLAG_webcam = false, FLAG_autorotate = false;
+bool FLAG_debug = false, FLAG_verbose = false, FLAG_show = false, FLAG_webcam = false, FLAG_autorotate = false,
+     FLAG_usePinnedMemory = false;
 int FLAG_logLevel = NVCV_LOG_ERROR,
     FLAG_bgMode = BGMODE_SRC,
     FLAG_aigs_mode = 2;        // 0=FG Qual Model 1=FG Perf Model 2=BG Qual Model 3=BG Perf Model\n"
@@ -86,7 +93,9 @@ float FLAG_pan = -90.f,        // Degrees in the command-line arguments, radians
     FLAG_rotationRate = 20.f,  // degrees per second.
       FLAG_vfov = 60.f;  // Degrees in the command-line arguments, radians in the SDK
 std::string FLAG_codec = DEFAULT_CODEC, FLAG_inFile, FLAG_outFile, FLAG_outDir, FLAG_modelsDir,
-            FLAG_showMode = "output", FLAG_camRes, FLAG_inBg, FLAG_inHDR, FLAG_inMat, FLAG_log = "stderr";
+            FLAG_showMode = "output", FLAG_camRes, FLAG_inBg, FLAG_inHDR, FLAG_inMat, FLAG_log = "stderr",
+            FLAG_cacheDir;
+unsigned int FLAG_cacheMode = 0;
 
 // Set this when using OTA Updates
 // This path is used by nvVideoEffectsProxy.cpp to load the SDK dll
@@ -128,21 +137,28 @@ static bool GetFlagArgVal(const char* flag, const char* arg, bool* val) {  // bo
 static bool GetFlagArgVal(const char* flag, const char* arg, float* val) {  // float
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtof(valStr, NULL);
+  if (success && valStr) *val = strtof(valStr, NULL);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, long* val) {  // long
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtol(valStr, NULL, 10);
+  if (success && valStr) *val = strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, int* val) {  // int
-  long longVal;
-  bool success = GetFlagArgVal(flag, arg, &longVal);
-  if (success) *val = (int)longVal;
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (int)strtol(valStr, NULL, 10);
+  return success;
+}
+
+static bool GetFlagArgVal(const char* flag, const char* arg, unsigned* val) {  // unsigned
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (unsigned)strtoul(valStr, NULL, 10);
   return success;
 }
 
@@ -174,9 +190,12 @@ static void Usage() {
       "  --rotation_rate=<N>         the auto-rotation rate, in degrees per second\n"
       "  --show[=(true|false)]       display images on-screen\n"
       "  --show_mode=<mode>          Options - output, input\n"
+      "  --use_pinned_memory[=(true|false)]  use NVCV_CPU_PINNED memory for the input and output image.\n"
       "  --verbose[=(true|false)]    verbose output\n"
       "  --vfov=<num>                set the initial vertical field of view, in degrees (default 60)\n"
-      "  --webcam[=(true|false)]     use a webcam as the input, rather than a file\n");
+      "  --webcam[=(true|false)]     use a webcam as the input, rather than a file\n"
+      "  --cache_dir=<path>         Model cache directory (default: model_dir/cache) [WoA only, e.g. RTX Spark]\n"
+      "  --cache_mode=(0|1|2)       Model cache mode: 0=Auto, 1=Disabled, 2=ForceRegenerate (default 0) [WoA only, e.g. RTX Spark]\n");
 }
 
 static void PrintKeyboardControlLegend() {
@@ -206,32 +225,35 @@ static int ParseMyArgs(int argc, char** argv) {
     const char* arg = *argv;
     if (arg[0] != '-') {
       continue;
-    } else if ((arg[1] == '-') &&                                              //
-               (                                                               //
-                   GetFlagArgVal("autorotate", arg, &FLAG_autorotate) ||       //
-                   GetFlagArgVal("bg_mode", arg, &FLAG_bgMode) ||              //
-                   GetFlagArgVal("cam_res", arg, &FLAG_camRes) ||              //
-                   GetFlagArgVal("codec", arg, &FLAG_codec) ||                 //
-                   GetFlagArgVal("debug", arg, &FLAG_debug) ||                 //
-                   GetFlagArgVal("in_bg", arg, &FLAG_inBg) ||                  //
-                   GetFlagArgVal("in_file", arg, &FLAG_inFile) ||              //
-                   GetFlagArgVal("in_hdr", arg, &FLAG_inHDR) ||                //
-                   GetFlagArgVal("in_mask", arg, &FLAG_inMat) ||               //
-                   GetFlagArgVal("in_mat", arg, &FLAG_inMat) ||                //
-                   GetFlagArgVal("in_src", arg, &FLAG_inFile) ||               //
-                   GetFlagArgVal("log", arg, &FLAG_log) ||                     //
-                   GetFlagArgVal("log_level", arg, &FLAG_logLevel) ||          //
-                   GetFlagArgVal("model_dir", arg, &FLAG_modelsDir) ||         //
-                   GetFlagArgVal("models_dir", arg, &FLAG_modelsDir) ||        //
-                   GetFlagArgVal("out_dir", arg, &FLAG_outDir) ||              //
-                   GetFlagArgVal("out_file", arg, &FLAG_outFile) ||            //
-                   GetFlagArgVal("pan", arg, &FLAG_pan) ||                     //
-                   GetFlagArgVal("rotation_rate", arg, &FLAG_rotationRate) ||  //
-                   GetFlagArgVal("show", arg, &FLAG_show) ||                   //
-                   GetFlagArgVal("show_mode", arg, &FLAG_showMode) ||          //
-                   GetFlagArgVal("verbose", arg, &FLAG_verbose) ||             //
-                   GetFlagArgVal("vfov", arg, &FLAG_vfov) ||                   //
-                   GetFlagArgVal("webcam", arg, &FLAG_webcam))) {
+    } else if ((arg[1] == '-') &&                                                     //
+               (                                                                      //
+                   GetFlagArgVal("autorotate", arg, &FLAG_autorotate) ||              //
+                   GetFlagArgVal("bg_mode", arg, &FLAG_bgMode) ||                     //
+                   GetFlagArgVal("cam_res", arg, &FLAG_camRes) ||                     //
+                   GetFlagArgVal("codec", arg, &FLAG_codec) ||                        //
+                   GetFlagArgVal("debug", arg, &FLAG_debug) ||                        //
+                   GetFlagArgVal("in_bg", arg, &FLAG_inBg) ||                         //
+                   GetFlagArgVal("in_file", arg, &FLAG_inFile) ||                     //
+                   GetFlagArgVal("in_hdr", arg, &FLAG_inHDR) ||                       //
+                   GetFlagArgVal("in_mask", arg, &FLAG_inMat) ||                      //
+                   GetFlagArgVal("in_mat", arg, &FLAG_inMat) ||                       //
+                   GetFlagArgVal("in_src", arg, &FLAG_inFile) ||                      //
+                   GetFlagArgVal("log", arg, &FLAG_log) ||                            //
+                   GetFlagArgVal("log_level", arg, &FLAG_logLevel) ||                 //
+                   GetFlagArgVal("model_dir", arg, &FLAG_modelsDir) ||                //
+                   GetFlagArgVal("models_dir", arg, &FLAG_modelsDir) ||               //
+                   GetFlagArgVal("out_dir", arg, &FLAG_outDir) ||                     //
+                   GetFlagArgVal("out_file", arg, &FLAG_outFile) ||                   //
+                   GetFlagArgVal("pan", arg, &FLAG_pan) ||                            //
+                   GetFlagArgVal("rotation_rate", arg, &FLAG_rotationRate) ||         //
+                   GetFlagArgVal("show", arg, &FLAG_show) ||                          //
+                   GetFlagArgVal("show_mode", arg, &FLAG_showMode) ||                 //
+                   GetFlagArgVal("use_pinned_memory", arg, &FLAG_usePinnedMemory) ||  //
+                   GetFlagArgVal("verbose", arg, &FLAG_verbose) ||                    //
+                   GetFlagArgVal("vfov", arg, &FLAG_vfov) ||                          //
+                   GetFlagArgVal("webcam", arg, &FLAG_webcam) ||                    //
+                   GetFlagArgVal("cache_dir", arg, &FLAG_cacheDir) ||             //
+                   GetFlagArgVal("cache_mode", arg, &FLAG_cacheMode))) {
       continue;
     } else if (GetFlagArgVal("help", arg, &help)) {
       Usage();
@@ -442,33 +464,33 @@ class DirectoryIterator {
 };
 
 #ifdef _MSC_VER  //////////////////////////////////////// WINDOWS ////////////////////////////////////////
-#include <Windows.h>
 struct DirectoryIterator::Impl {
   HANDLE h;
   unsigned which;
   bool first;
-  WIN32_FIND_DATAA data;
+  WIN32_FIND_DATAW data;
+  std::string u8name;
 };
 DirectoryIterator::DirectoryIterator() {
   pimpl = new DirectoryIterator::Impl;
-  pimpl->h = nullptr;
+  pimpl->h = INVALID_HANDLE_VALUE;
 }
 DirectoryIterator::DirectoryIterator(const char* path, unsigned iterateWhat) : DirectoryIterator() {
   (void)init(path, iterateWhat);
 }
 DirectoryIterator::~DirectoryIterator() {
   if (pimpl) {
-    if (pimpl->h) FindClose(pimpl->h);
+    if (pimpl->h != INVALID_HANDLE_VALUE) FindClose(pimpl->h);
     delete pimpl;
   }
 }
 NvCV_Status DirectoryIterator::init(const char* path, unsigned iterateWhat) {
-  DWORD attributes = GetFileAttributesA(path);
+  std::wstring wpath = Utf8ToWide(path);
+  DWORD attributes = GetFileAttributesW(wpath.c_str());
   if (INVALID_FILE_ATTRIBUTES == attributes) return NVCV_ERR_FILE;
   if (!(FILE_ATTRIBUTE_DIRECTORY & attributes)) return NVCV_ERR_PARAMETER;
-  std::string pathStar = path;
-  pathStar += "\\*";
-  if (nullptr == (pimpl->h = FindFirstFileA(pathStar.c_str(), &pimpl->data))) return NVCV_ERR_FILE;
+  wpath += L"\\*";
+  if (INVALID_HANDLE_VALUE == (pimpl->h = FindFirstFileW(wpath.c_str(), &pimpl->data))) return NVCV_ERR_FILE;
   pimpl->which = iterateWhat ? iterateWhat : typeAll;
   pimpl->first = true;
   return NVCV_SUCCESS;
@@ -478,12 +500,13 @@ NvCV_Status DirectoryIterator::next(const char** pName, unsigned* type) {
   while (1) {
     if (pimpl->first) {
       pimpl->first = false;
-    } else if (!FindNextFileA(pimpl->h, &pimpl->data)) {
+    } else if (!FindNextFileW(pimpl->h, &pimpl->data)) {
       *pName = nullptr;
       if (type) *type = 0;
       return NVCV_ERR_EOF;
     }
-    *pName = pimpl->data.cFileName;
+    pimpl->u8name = WideToUtf8(pimpl->data.cFileName);
+    *pName = pimpl->u8name.c_str();
     if (0 != (pimpl->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
       if (pimpl->which & typeDirectory) {
         if (type) *type = typeDirectory;
@@ -571,7 +594,8 @@ NvCV_Status DirectoryIterator::next(const char** pName, unsigned* type) {
 /// @return {0, 1, 2} for no {error, file, directory}
 static int FileType(const char* file) {
 #ifdef _MSC_VER
-  DWORD attr = GetFileAttributesA(file);
+  std::wstring wfile = Utf8ToWide(file);
+  DWORD attr = GetFileAttributesW(wfile.c_str());
   if (attr == INVALID_FILE_ATTRIBUTES) return 0;
   if (attr & FILE_ATTRIBUTE_DIRECTORY) return 2;
   if (attr & (FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_COMPRESSED |
@@ -980,8 +1004,10 @@ RelightApp::Err RelightApp::processImage(const std::string& in_file, const std::
                   NvCVImage_Alloc(&m_gPrj, m_gSrc.width, m_gSrc.height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 0));
   BAIL_IF_ERR(err =
                   NvCVImage_Alloc(&m_gBkg, m_gSrc.width, m_gSrc.height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 0));
-  BAIL_IF_ERR(err =
-                  NvCVImage_Alloc(&m_gBlr, m_gSrc.width, m_gSrc.height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 0));
+  // Match the blur output format to its selected input because Background Blur requires identical pixel formats.
+  BAIL_IF_ERR(err = NvCVImage_Alloc(&m_gBlr, m_gSrc.width, m_gSrc.height,
+                                    (BGMODE_SRC_BLURRED == FLAG_bgMode) ? m_gSrc.pixelFormat : m_gBkg.pixelFormat,
+                                    NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 0));
 
   // Open the background image if given, or set to gray
   BAIL_IF_ERR(err = readBackground(FLAG_inBg));
@@ -989,6 +1015,9 @@ RelightApp::Err RelightApp::processImage(const std::string& in_file, const std::
   // Set input and output parameters
   BAIL_IF_ERR(err = NvVFX_SetCudaStream(m_relightEff, NVVFX_CUDA_STREAM, m_stream));
   BAIL_IF_ERR(err = NvVFX_SetString(m_relightEff, NVVFX_MODEL_DIRECTORY, FLAG_modelsDir.c_str()));
+  if (!FLAG_cacheDir.empty())
+    BAIL_IF_ERR(err = NvVFX_SetString(m_relightEff, NVVFX_MODEL_CACHE_DIRECTORY, FLAG_cacheDir.c_str()));
+  BAIL_IF_ERR(err = NvVFX_SetU32(m_relightEff, NVVFX_MODEL_CACHE_MODE, FLAG_cacheMode));
   BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_0, &m_gSrc));   // src in
   BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_1, &m_gMat));   // mat in
   err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_2, &m_cHdr);                // hdr in
@@ -1014,6 +1043,9 @@ RelightApp::Err RelightApp::processImage(const std::string& in_file, const std::
     BAIL_IF_ERR(err = NvVFX_SetImage(m_aigsEff, NVVFX_OUTPUT_IMAGE, &m_gMat));
     BAIL_IF_ERR(err = NvVFX_SetU32(m_aigsEff, NVVFX_CUDA_GRAPH, 1u));
     BAIL_IF_ERR(err = NvVFX_SetU32(m_aigsEff, NVVFX_MODE, 2u));  // Default AIGS mode is BG - Qual
+    if (!FLAG_cacheDir.empty())
+      BAIL_IF_ERR(err = NvVFX_SetString(m_aigsEff, NVVFX_MODEL_CACHE_DIRECTORY, FLAG_cacheDir.c_str()));
+    BAIL_IF_ERR(err = NvVFX_SetU32(m_aigsEff, NVVFX_MODEL_CACHE_MODE, FLAG_cacheMode));
     BAIL_IF_ERR(err = NvVFX_Load(m_aigsEff));
   } else {
     err = ReadImage(FLAG_inMat.c_str(), NVCV_A, NVCV_U8, NVCV_CHUNKY, NVCV_CPU, 0, &m_cMat);
@@ -1031,9 +1063,13 @@ RelightApp::Err RelightApp::processImage(const std::string& in_file, const std::
   }
 
   if (BGMODE_SRC_BLURRED == FLAG_bgMode || BGMODE_BG_BLURRED == FLAG_bgMode) {  // Blur requested
+    // Blur the source for srcBlur and the configured background for bgImgBlur.
+    NvCVImage* blurSrc = (BGMODE_SRC_BLURRED == FLAG_bgMode) ? &m_gSrc : &m_gBkg;
     BAIL_IF_ERR(err = NvVFX_CreateEffect(NVVFX_FX_BGBLUR, &m_bgBlurEff));
+    // Use the app stream so Background Blur is synchronized with image transfers and the other effects.
+    BAIL_IF_ERR(err = NvVFX_SetCudaStream(m_bgBlurEff, NVVFX_CUDA_STREAM, m_stream));
     BAIL_IF_ERR(err = NvVFX_SetImage(m_bgBlurEff, NVVFX_OUTPUT_IMAGE, &m_gBlr));
-    BAIL_IF_ERR(err = NvVFX_SetImage(m_bgBlurEff, NVVFX_INPUT_IMAGE_0, &m_gSrc));
+    BAIL_IF_ERR(err = NvVFX_SetImage(m_bgBlurEff, NVVFX_INPUT_IMAGE_0, blurSrc));
     BAIL_IF_ERR(err = NvVFX_Load(m_bgBlurEff));  // Load needs an input and output
   }
 
@@ -1094,6 +1130,7 @@ RelightApp::Err RelightApp::processMovie(const std::string& in_file, const std::
   NvCV_Status err;
   unsigned frame_num;
   VideoInfo src_info;
+  NvCVImage* src_input = nullptr;
 
   // Create a CUDA stream and the relighting effect
   BAIL_IF_ERR(err = NvVFX_CudaStreamCreate(&m_stream));
@@ -1132,17 +1169,22 @@ RelightApp::Err RelightApp::processMovie(const std::string& in_file, const std::
   // Allocate CPU and GPU buffers as necessary
   BAIL_IF_ERR(err = NvCVImage_Alloc(&m_cSrc, src_info.width, src_info.height, NVCV_BGR, NVCV_U8, NVCV_CHUNKY,
                                     NVCV_CPU_PINNED, 0));
-  BAIL_IF_ERR(err =
-                  NvCVImage_Alloc(&m_gSrc, m_cSrc.width, m_cSrc.height, NVCV_BGR, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 1));
-  BAIL_IF_ERR(err = NvCVImage_Alloc(&m_gMat, m_gSrc.width, m_gSrc.height, NVCV_A, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 1));
-  BAIL_IF_ERR(err =
-                  NvCVImage_Alloc(&m_gDst, m_gSrc.width, m_gSrc.height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 1));
+  if (!FLAG_usePinnedMemory) {
+    BAIL_IF_ERR(
+        err = NvCVImage_Alloc(&m_gSrc, m_cSrc.width, m_cSrc.height, NVCV_BGR, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 1));
+  }
+  // Pick the input image the SDK will consume - either the pinned host image or the GPU staging.
+  src_input = FLAG_usePinnedMemory ? &m_cSrc : &m_gSrc;
+  BAIL_IF_ERR(
+      err = NvCVImage_Alloc(&m_gMat, src_input->width, src_input->height, NVCV_A, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 1));
+  BAIL_IF_ERR(err = NvCVImage_Alloc(&m_gDst, src_input->width, src_input->height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY,
+                                    NVCV_CUDA, 1));
   BAIL_IF_ERR(
       err = NvCVImage_Alloc(&m_cDst, m_gDst.width, m_gDst.height, NVCV_BGR, NVCV_U8, NVCV_CHUNKY, NVCV_CPU_PINNED, 0));
-  BAIL_IF_ERR(err =
-                  NvCVImage_Alloc(&m_gPrj, m_gSrc.width, m_gSrc.height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 0));
-  BAIL_IF_ERR(err =
-                  NvCVImage_Alloc(&m_gBkg, m_gSrc.width, m_gSrc.height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA, 0));
+  BAIL_IF_ERR(err = NvCVImage_Alloc(&m_gPrj, src_input->width, src_input->height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY,
+                                    NVCV_CUDA, 0));
+  BAIL_IF_ERR(err = NvCVImage_Alloc(&m_gBkg, src_input->width, src_input->height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY,
+                                    NVCV_CUDA, 0));
   // BAIL_IF_ERR(err = NvCVImage_Alloc(&m_gBlr, m_gSrc.width, m_gSrc.height, NVCV_RGB, NVCV_U8, NVCV_CHUNKY, NVCV_CUDA,
   // 0));
 
@@ -1162,12 +1204,15 @@ RelightApp::Err RelightApp::processMovie(const std::string& in_file, const std::
   // Set input and output parameters
   BAIL_IF_ERR(err = NvVFX_SetCudaStream(m_relightEff, NVVFX_CUDA_STREAM, m_stream));
   BAIL_IF_ERR(err = NvVFX_SetString(m_relightEff, NVVFX_MODEL_DIRECTORY, FLAG_modelsDir.c_str()));
-  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_0, &m_gSrc));   // src in
-  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_1, &m_gMat));   // mat in
-  err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_2, &m_cHdr);                // hdr in
-  if (NVCV_ERR_WRONGSIZE != err) BAIL_IF_ERR(err);                                 // don't exit if not 2:1
-  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_OUTPUT_IMAGE_0, &m_gDst));  // dst out
-  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_OUTPUT_IMAGE_1, &m_gPrj));  // projected HDR out
+  if (!FLAG_cacheDir.empty())
+    BAIL_IF_ERR(err = NvVFX_SetString(m_relightEff, NVVFX_MODEL_CACHE_DIRECTORY, FLAG_cacheDir.c_str()));
+  BAIL_IF_ERR(err = NvVFX_SetU32(m_relightEff, NVVFX_MODEL_CACHE_MODE, FLAG_cacheMode));
+  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_0, src_input));  // src in
+  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_1, &m_gMat));    // mat in
+  err = NvVFX_SetImage(m_relightEff, NVVFX_INPUT_IMAGE_2, &m_cHdr);                 // hdr in
+  if (NVCV_ERR_WRONGSIZE != err) BAIL_IF_ERR(err);                                  // don't exit if not 2:1
+  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_OUTPUT_IMAGE_0, &m_gDst));   // dst out
+  BAIL_IF_ERR(err = NvVFX_SetImage(m_relightEff, NVVFX_OUTPUT_IMAGE_1, &m_gPrj));   // projected HDR out
   BAIL_IF_ERR(err = NvVFX_SetF32(m_relightEff, NVVFX_ANGLE_PAN, m_pan));
   BAIL_IF_ERR(err = NvVFX_SetF32(m_relightEff, NVVFX_ANGLE_VFOV, m_vfov));
   if (FLAG_show) PrintKeyboardControlLegend();
@@ -1183,10 +1228,13 @@ RelightApp::Err RelightApp::processMovie(const std::string& in_file, const std::
   BAIL_IF_ERR(err = NvVFX_CreateEffect(NVVFX_FX_GREEN_SCREEN, &m_aigsEff));
   BAIL_IF_ERR(err = NvVFX_SetCudaStream(m_aigsEff, NVVFX_CUDA_STREAM, m_stream));
   BAIL_IF_ERR(err = NvVFX_SetString(m_aigsEff, NVVFX_MODEL_DIRECTORY, FLAG_modelsDir.c_str()));
-  BAIL_IF_ERR(err = NvVFX_SetImage(m_aigsEff, NVVFX_INPUT_IMAGE, &m_gSrc));
+  BAIL_IF_ERR(err = NvVFX_SetImage(m_aigsEff, NVVFX_INPUT_IMAGE, src_input));
   BAIL_IF_ERR(err = NvVFX_SetImage(m_aigsEff, NVVFX_OUTPUT_IMAGE, &m_gMat));
   BAIL_IF_ERR(err = NvVFX_SetU32(m_aigsEff, NVVFX_CUDA_GRAPH, 1u));
   BAIL_IF_ERR(err = NvVFX_SetU32(m_aigsEff, NVVFX_MODE, 2u));  // Default AIGS mode is BG - Qual
+  if (!FLAG_cacheDir.empty())
+    BAIL_IF_ERR(err = NvVFX_SetString(m_aigsEff, NVVFX_MODEL_CACHE_DIRECTORY, FLAG_cacheDir.c_str()));
+  BAIL_IF_ERR(err = NvVFX_SetU32(m_aigsEff, NVVFX_MODEL_CACHE_MODE, FLAG_cacheMode));
 
   BAIL_IF_ERR(err = NvVFX_Load(m_aigsEff));
 
@@ -1217,7 +1265,9 @@ RelightApp::Err RelightApp::processMovie(const std::string& in_file, const std::
   for (frame_num = 0; m_pauseFrame || src_reader.read(m_cvInput); m_pauseFrame || ++frame_num) {
     if (m_cvInput.empty()) printf("Frame %u is empty\n", frame_num);
 
-    BAIL_IF_ERR(err = NvCVImage_Transfer(&m_cSrc, &m_gSrc, 1.f, m_stream, &m_tmp));
+    if (!FLAG_usePinnedMemory) {
+      BAIL_IF_ERR(err = NvCVImage_Transfer(&m_cSrc, &m_gSrc, 1.f, m_stream, &m_tmp));
+    }
     BAIL_IF_ERR(err = NvVFX_Run(m_aigsEff, 1));
     BAIL_IF_ERR(err = NvVFX_Run(m_relightEff, 1));
     switch (m_backgroundMode) {
@@ -1226,11 +1276,11 @@ RelightApp::Err RelightApp::processMovie(const std::string& in_file, const std::
         if (err) std::cerr << NvCV_GetErrorStringFromCode(err);
         break;
       case BGMODE_SRC:
-        err = NvCVImage_Composite(&m_gDst, &m_gSrc, &m_gMat, &m_gDst, m_stream);
+        err = NvCVImage_Composite(&m_gDst, src_input, &m_gMat, &m_gDst, m_stream);
         if (err) std::cerr << NvCV_GetErrorStringFromCode(err);
         break;
       case BGMODE_SRC_BLURRED:
-        err = NvCVImage_Composite(&m_gDst, &m_gSrc, &m_gMat, &m_gDst, m_stream);
+        err = NvCVImage_Composite(&m_gDst, src_input, &m_gMat, &m_gDst, m_stream);
         if (err) std::cerr << NvCV_GetErrorStringFromCode(err);
         err = NvVFX_Run(m_bgBlurEff, 1);  // TODO: better to blur before composite
         if (err) std::cerr << NvCV_GetErrorStringFromCode(err);
@@ -1286,14 +1336,16 @@ bail:
   return app_errFromVfxStatus(err);
 }
 
-int main(int argc, char** argv) {
+static int SamplesMain(int argc, char** argv) {
   int nErrs = 0;
   RelightApp::Err err = RelightApp::errNone;
   RelightApp app;
 
   nErrs = ParseMyArgs(argc, argv);
+  if (nErrs == NVCV_ERR_HELP) {
+    return 0;  // Usage() already printed in ParseMyArgs
+  }
   if (nErrs) {
-    if (NVCV_ERR_HELP == nErrs) return nErrs;
     try {
       std::cerr << nErrs << " command line syntax problems\n";
     } catch (const std::exception& e) {
@@ -1327,6 +1379,10 @@ int main(int argc, char** argv) {
     std::cerr << "Please specify --out_file=XXX or --show\n";
     ++nErrs;
   }
+  if (FLAG_bgMode < BGMODE_SRC || FLAG_bgMode > BGMODE_BG_BLURRED) {
+    std::cerr << "--bg_mode must be in the range [0, 4]\n";
+    ++nErrs;
+  }
 
   // Set app initial values
   app.setPan(FLAG_pan);
@@ -1348,3 +1404,19 @@ int main(int argc, char** argv) {
   if (err) std::cerr << "Error: " << app.errorStringFromCode(err) << std::endl;
   return int(err);
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t* wargv[]) {
+  std::vector<std::string> u8args(argc);
+  std::vector<char*> u8argv(argc);
+  for (int i = 0; i < argc; ++i) {
+    u8args[i] = WideToUtf8(wargv[i]);
+    u8argv[i] = &u8args[i][0];
+  }
+  return SamplesMain(argc, u8argv.data());
+}
+#else
+int main(int argc, char** argv) {
+  return SamplesMain(argc, argv);
+}
+#endif

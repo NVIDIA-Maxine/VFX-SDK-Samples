@@ -28,8 +28,10 @@
 #include <chrono>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "nvCVOpenCV.h"
+#include "unicodeUtf8Utils.h"
 #include "nvVFXDenoising.h"
 #include "nvVideoEffects.h"
 #include "opencv2/opencv.hpp"
@@ -62,11 +64,13 @@
 #define DEFAULT_CODEC "H264"
 #endif  // _WIN32
 
-bool FLAG_debug = false, FLAG_verbose = false, FLAG_show = false, FLAG_progress = false, FLAG_webcam = false;
+bool FLAG_debug = false, FLAG_verbose = false, FLAG_show = false, FLAG_progress = false, FLAG_webcam = false,
+     FLAG_usePinnedMemory = false;
 int FLAG_logLevel = NVCV_LOG_ERROR;
 float FLAG_strength = 0.f;
 std::string FLAG_codec = DEFAULT_CODEC, FLAG_camRes = "1280x720", FLAG_inFile, FLAG_outFile, FLAG_outDir, FLAG_modelDir,
-            FLAG_log = "stderr";
+            FLAG_log = "stderr", FLAG_cacheDir;
+unsigned int FLAG_cacheMode = 0;
 
 // Set this when using OTA Updates
 // This path is used by nvVideoEffectsProxy.cpp to load the SDK dll
@@ -108,21 +112,28 @@ static bool GetFlagArgVal(const char* flag, const char* arg, bool* val) {
 static bool GetFlagArgVal(const char* flag, const char* arg, float* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtof(valStr, NULL);
+  if (success && valStr) *val = strtof(valStr, NULL);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, long* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtol(valStr, NULL, 10);
+  if (success && valStr) *val = strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, int* val) {
-  long longVal;
-  bool success = GetFlagArgVal(flag, arg, &longVal);
-  if (success) *val = (int)longVal;
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (int)strtol(valStr, NULL, 10);
+  return success;
+}
+
+static bool GetFlagArgVal(const char* flag, const char* arg, unsigned* val) {
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (unsigned)strtoul(valStr, NULL, 10);
   return success;
 }
 
@@ -145,7 +156,10 @@ static void Usage() {
       "  --debug                    print extra debugging information\n"
       "  --log=<file>               log SDK errors to a file, \"stderr\" or \"\" (default stderr)\n"
       "  --log_level=<N>            the desired log level: {0, 1, 2, 3} = {FATAL, ERROR, WARNING, INFO}, respectively "
-      "(default 1)\n");
+      "(default 1)\n"
+      "  --cache_dir=<path>         Model cache directory (default: model_dir/cache) [WoA only, e.g. RTX Spark]\n"
+      "  --cache_mode=(0|1|2)       Model cache mode: 0=Auto, 1=Disabled, 2=ForceRegenerate (default 0) [WoA only, e.g. RTX Spark]\n"
+      "  --use_pinned_memory[=(true|false)]  use NVCV_CPU_PINNED memory for the input and output image.\n");
 }
 
 static int ParseMyArgs(int argc, char** argv) {
@@ -170,7 +184,10 @@ static int ParseMyArgs(int argc, char** argv) {
                 GetFlagArgVal("progress", arg, &FLAG_progress) ||   //
                 GetFlagArgVal("log", arg, &FLAG_log) ||             //
                 GetFlagArgVal("log_level", arg, &FLAG_logLevel) ||  //
-                GetFlagArgVal("debug", arg, &FLAG_debug))) {
+                GetFlagArgVal("debug", arg, &FLAG_debug) ||         //
+                GetFlagArgVal("cache_dir", arg, &FLAG_cacheDir) ||  //
+                GetFlagArgVal("cache_mode", arg, &FLAG_cacheMode) ||  //
+                GetFlagArgVal("use_pinned_memory", arg, &FLAG_usePinnedMemory))) {
       continue;
     } else if (GetFlagArgVal("help", arg, &help)) {
       return NVCV_ERR_HELP;
@@ -457,6 +474,9 @@ FXApp::Err FXApp::createEffect(const char* effectSelector, const char* modelDir)
   _effectName = effectSelector;
   if (modelDir[0] != '\0') {
     BAIL_IF_ERR(vfxErr = NvVFX_SetString(_eff, NVVFX_MODEL_DIRECTORY, modelDir));
+    if (!FLAG_cacheDir.empty())
+      BAIL_IF_ERR(vfxErr = NvVFX_SetString(_eff, NVVFX_MODEL_CACHE_DIRECTORY, FLAG_cacheDir.c_str()));
+    BAIL_IF_ERR(vfxErr = NvVFX_SetU32(_eff, NVVFX_MODEL_CACHE_MODE, FLAG_cacheMode));
   }
 bail:
   return appErrFromVfxStatus(vfxErr);
@@ -487,6 +507,8 @@ NvCV_Status FXApp::allocBuffers(unsigned width, unsigned height) {
 
   if (_inited) return NVCV_SUCCESS;
 
+  const unsigned io_mem_space = FLAG_usePinnedMemory ? NVCV_CPU_PINNED : NVCV_GPU;
+
   if (!_srcImg.data) {
     _srcImg.create(height, width, CV_8UC3);  // src CPU
     BAIL_IF_NULL(_srcImg.data, vfxErr, NVCV_ERR_MEMORY);
@@ -499,9 +521,9 @@ NvCV_Status FXApp::allocBuffers(unsigned width, unsigned height) {
   NVWrapperForCVMat(&_dstImg, &_dstVFX);  // _dstVFX is an alias for _dstImg
 
   BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_srcGpuBuf, _srcVFX.width, _srcVFX.height, _srcVFX.pixelFormat, NVCV_F32,
-                                       NVCV_PLANAR, NVCV_GPU, 1));  // src GPU
+                                       NVCV_PLANAR, io_mem_space, 1));  // src GPU / pinned
   BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_dstGpuBuf, _dstVFX.width, _dstVFX.height, _dstVFX.pixelFormat, NVCV_F32,
-                                       NVCV_PLANAR, NVCV_GPU, 1));  // dst GPU
+                                       NVCV_PLANAR, io_mem_space, 1));  // dst GPU / pinned
 
 // #define ALLOC_TEMP_BUFFERS_AT_RUN_TIME    // Deferring temp buffer allocation is easier
 #ifndef ALLOC_TEMP_BUFFERS_AT_RUN_TIME       // Allocating temp buffers at load time avoids run time hiccups
@@ -643,12 +665,16 @@ bail:
   return appErrFromVfxStatus(vfxErr);
 }
 
-int main(int argc, char** argv) {
+static int SamplesMain(int argc, char** argv) {
   FXApp::Err fxErr = FXApp::errNone;
   int nErrs;
   FXApp app;
 
   nErrs = ParseMyArgs(argc, argv);
+  if (nErrs == NVCV_ERR_HELP) {
+    Usage();
+    return 0;
+  }
   if (nErrs) std::cerr << nErrs << " command line syntax problems\n";
 
   {
@@ -668,6 +694,10 @@ int main(int argc, char** argv) {
   }
   if (FLAG_outFile.empty() && !FLAG_show) {
     std::cerr << "Please specify --out_file=XXX or --show\n";
+    ++nErrs;
+  }
+  if (!(FLAG_strength >= 0.0f && FLAG_strength <= 1.0f)) {
+    std::cerr << "--strength must be in the range [0.0, 1.0]\n";
     ++nErrs;
   }
   app._progress = FLAG_progress;
@@ -691,3 +721,19 @@ int main(int argc, char** argv) {
   if (fxErr) std::cerr << "Error: " << app.errorStringFromCode(fxErr) << std::endl;
   return (int)fxErr;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t* wargv[]) {
+  std::vector<std::string> u8args(argc);
+  std::vector<char*> u8argv(argc);
+  for (int i = 0; i < argc; ++i) {
+    u8args[i] = WideToUtf8(wargv[i]);
+    u8argv[i] = &u8args[i][0];
+  }
+  return SamplesMain(argc, u8argv.data());
+}
+#else
+int main(int argc, char** argv) {
+  return SamplesMain(argc, argv);
+}
+#endif

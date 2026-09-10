@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "nvCVOpenCV.h"
+#include "unicodeUtf8Utils.h"
 #include "nvVFXBackgroundBlur.h"
 #include "nvVFXGreenScreen.h"
 #include "nvVideoEffects.h"
@@ -71,7 +72,7 @@ bool FLAG_progress = false;
 bool FLAG_show = false;
 bool FLAG_verbose = false;
 bool FLAG_webcam = false;
-bool FLAG_cudaGraph = false;
+bool FLAG_usePinnedMemory = false;
 int FLAG_compMode = 3 /* compWhite */;
 int FLAG_mode = 0;
 int FLAG_logLevel = NVCV_LOG_ERROR;
@@ -84,6 +85,8 @@ std::string FLAG_modelDir;
 std::string FLAG_outDir;
 std::string FLAG_outFile;
 std::string FLAG_bgFile;
+std::string FLAG_cacheDir;
+unsigned int FLAG_cacheMode = 0;
 
 static bool GetFlagArgVal(const char* flag, const char* arg, const char** val) {
   if (*arg != '-') return false;
@@ -120,21 +123,28 @@ static bool GetFlagArgVal(const char* flag, const char* arg, bool* val) {
 static bool GetFlagArgVal(const char* flag, const char* arg, long* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtol(valStr, NULL, 10);
+  if (success && valStr) *val = strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, int* val) {
-  long longVal;
-  bool success = GetFlagArgVal(flag, arg, &longVal);
-  if (success) *val = (int)longVal;
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (int)strtol(valStr, NULL, 10);
+  return success;
+}
+
+static bool GetFlagArgVal(const char* flag, const char* arg, unsigned* val) {
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (unsigned)strtoul(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, float* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = std::stof(valStr);
+  if (success && valStr) *val = std::stof(valStr);
   return success;
 }
 
@@ -164,10 +174,12 @@ static void Usage() {
       "                               5 (composite over a specified background image - compBG),\n"
       "                               6 (blur the background of the image - compBlur) }\n"
       "  --blur_strength=[0-1]      strength of the background blur, when applicable\n"
-      "  --cuda_graph               Enable cuda graph.\n"
+      "  --use_pinned_memory[=(true|false)]  use NVCV_CPU_PINNED memory for the input and output image.\n"
       "  --log=<file>               log SDK errors to a file, \"stderr\" or \"\" (default stderr)\n"
       "  --log_level=<N>            the desired log level: {0, 1, 2, 3} = {FATAL, ERROR, WARNING, INFO}, respectively "
-      "(default 1)\n");
+      "(default 1)\n"
+      "  --cache_dir=<path>         Model cache directory (default: model_dir/cache) [WoA only, e.g. RTX Spark]\n"
+      "  --cache_mode=(0|1|2)       Model cache mode: 0=Auto, 1=Disabled, 2=ForceRegenerate (default 0) [WoA only, e.g. RTX Spark]\n");
 }
 
 static int ParseMyArgs(int argc, char** argv) {
@@ -177,25 +189,27 @@ static int ParseMyArgs(int argc, char** argv) {
     const char* arg = *argv;
     if (arg[0] != '-') {
       continue;
-    } else if ((arg[1] == '-') &&                                           //
-               (GetFlagArgVal("verbose", arg, &FLAG_verbose) ||             //
-                GetFlagArgVal("in", arg, &FLAG_inFile) ||                   //
-                GetFlagArgVal("in_file", arg, &FLAG_inFile) ||              //
-                GetFlagArgVal("out", arg, &FLAG_outFile) ||                 //
-                GetFlagArgVal("out_file", arg, &FLAG_outFile) ||            //
-                GetFlagArgVal("model_dir", arg, &FLAG_modelDir) ||          //
-                GetFlagArgVal("bg_file", arg, &FLAG_bgFile) ||              //
-                GetFlagArgVal("codec", arg, &FLAG_codec) ||                 //
-                GetFlagArgVal("webcam", arg, &FLAG_webcam) ||               //
-                GetFlagArgVal("cam_res", arg, &FLAG_camRes) ||              //
-                GetFlagArgVal("mode", arg, &FLAG_mode) ||                   //
-                GetFlagArgVal("progress", arg, &FLAG_progress) ||           //
-                GetFlagArgVal("show", arg, &FLAG_show) ||                   //
-                GetFlagArgVal("comp_mode", arg, &FLAG_compMode) ||          //
-                GetFlagArgVal("blur_strength", arg, &FLAG_blurStrength) ||  //
-                GetFlagArgVal("cuda_graph", arg, &FLAG_cudaGraph) ||        //
-                GetFlagArgVal("log", arg, &FLAG_log) ||                     //
-                GetFlagArgVal("log_level", arg, &FLAG_logLevel))) {
+    } else if ((arg[1] == '-') &&                                                  //
+               (GetFlagArgVal("verbose", arg, &FLAG_verbose) ||                    //
+                GetFlagArgVal("in", arg, &FLAG_inFile) ||                          //
+                GetFlagArgVal("in_file", arg, &FLAG_inFile) ||                     //
+                GetFlagArgVal("out", arg, &FLAG_outFile) ||                        //
+                GetFlagArgVal("out_file", arg, &FLAG_outFile) ||                   //
+                GetFlagArgVal("model_dir", arg, &FLAG_modelDir) ||                 //
+                GetFlagArgVal("bg_file", arg, &FLAG_bgFile) ||                     //
+                GetFlagArgVal("codec", arg, &FLAG_codec) ||                        //
+                GetFlagArgVal("webcam", arg, &FLAG_webcam) ||                      //
+                GetFlagArgVal("cam_res", arg, &FLAG_camRes) ||                     //
+                GetFlagArgVal("mode", arg, &FLAG_mode) ||                          //
+                GetFlagArgVal("progress", arg, &FLAG_progress) ||                  //
+                GetFlagArgVal("show", arg, &FLAG_show) ||                          //
+                GetFlagArgVal("comp_mode", arg, &FLAG_compMode) ||                 //
+                GetFlagArgVal("blur_strength", arg, &FLAG_blurStrength) ||         //
+                GetFlagArgVal("use_pinned_memory", arg, &FLAG_usePinnedMemory) ||  //
+                GetFlagArgVal("log", arg, &FLAG_log) ||                            //
+                GetFlagArgVal("log_level", arg, &FLAG_logLevel) ||                 //
+                GetFlagArgVal("cache_dir", arg, &FLAG_cacheDir) ||                 //
+                GetFlagArgVal("cache_mode", arg, &FLAG_cacheMode))) {
       continue;
     } else if (GetFlagArgVal("help", arg, &help)) {
       return NVCV_ERR_HELP;
@@ -514,6 +528,10 @@ NvCV_Status FXApp::createAigsEffect() {
   if (!FLAG_modelDir.empty()) {
     vfxErr = NvVFX_SetString(_eff, NVVFX_MODEL_DIRECTORY, FLAG_modelDir.c_str());
   }
+  if (vfxErr == NVCV_SUCCESS && !FLAG_cacheDir.empty())
+    vfxErr = NvVFX_SetString(_eff, NVVFX_MODEL_CACHE_DIRECTORY, FLAG_cacheDir.c_str());
+  if (vfxErr == NVCV_SUCCESS)
+    vfxErr = NvVFX_SetU32(_eff, NVVFX_MODEL_CACHE_MODE, FLAG_cacheMode);
   if (vfxErr != NVCV_SUCCESS) {
     std::cerr << "Error setting the model path to \"" << FLAG_modelDir << "\"\n";
     return vfxErr;
@@ -523,12 +541,6 @@ NvCV_Status FXApp::createAigsEffect() {
   vfxErr = NvVFX_SetU32(_eff, NVVFX_MODE, FLAG_mode);
   if (vfxErr != NVCV_SUCCESS) {
     std::cerr << "Error setting the mode \n";
-    return vfxErr;
-  }
-
-  vfxErr = NvVFX_SetU32(_eff, NVVFX_CUDA_GRAPH, FLAG_cudaGraph ? 1u : 0u);
-  if (vfxErr != NVCV_SUCCESS) {
-    std::cerr << "Error enabling cuda graph \n";
     return vfxErr;
   }
 
@@ -791,6 +803,8 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
     }
   }
 
+  const unsigned io_mem_space = FLAG_usePinnedMemory ? NVCV_CPU_PINNED : NVCV_GPU;
+
   // Allocate space for batchOfStates to hold state variable addresses
   // Assume that MODEL_BATCH Size is enough for this scenario
   BAIL_IF_ERR(vfxErr = NvVFX_GetU32(_eff, NVVFX_MODEL_BATCH, &modelBatch));
@@ -800,31 +814,44 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
     goto bail;
   }
 
-  // allocate src for GPU
-  if (!_srcNvVFXImage.pixels)
-    BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_srcNvVFXImage, width, height, NVCV_BGR, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1));
+  // Allocate src image .
+  if (!_srcNvVFXImage.pixels) {
+    BAIL_IF_ERR(vfxErr =
+                    NvCVImage_Alloc(&_srcNvVFXImage, width, height, NVCV_BGR, NVCV_U8, NVCV_CHUNKY, io_mem_space, 1));
+  }
 
-  // allocate dst for GPU
-  if (!_dstNvVFXImage.pixels)
-    BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_dstNvVFXImage, width, height, NVCV_A, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1));
+  // Allocate dst (alpha mask) image.
+  if (!_dstNvVFXImage.pixels) {
+    BAIL_IF_ERR(vfxErr =
+                    NvCVImage_Alloc(&_dstNvVFXImage, width, height, NVCV_A, NVCV_U8, NVCV_CHUNKY, io_mem_space, 1));
+  }
 
   // allocate blur for GPU
   if (!_blurNvVFXImage.pixels)
     BAIL_IF_ERR(vfxErr = NvCVImage_Alloc(&_blurNvVFXImage, width, height, NVCV_BGR, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1));
 
+  if (FLAG_usePinnedMemory) {
+    CVWrapperForNvCVImage(&_srcNvVFXImage, &_srcImg);
+    CVWrapperForNvCVImage(&_dstNvVFXImage, &_dstImg);
+  }
+
   for (frameNum = 0; reader.read(_srcImg); ++frameNum) {
     if (_srcImg.empty()) printf("Frame %u is empty\n", frameNum);
 
-    _dstImg = cv::Mat::zeros(_srcImg.size(),
-                             CV_8UC1);  // TODO: Allocate and clear outside of the loop?
-    BAIL_IF_NULL(_dstImg.data, vfxErr, NVCV_ERR_MEMORY);
+    if (!FLAG_usePinnedMemory) {
+      _dstImg = cv::Mat::zeros(_srcImg.size(),
+                               CV_8UC1);  // TODO: Allocate and clear outside of the loop?
+      BAIL_IF_NULL(_dstImg.data, vfxErr, NVCV_ERR_MEMORY);
+    }
 
     (void)NVWrapperForCVMat(&_srcImg, &_srcVFX);  // Ditto
     (void)NVWrapperForCVMat(&_dstImg, &_dstVFX);
 
     BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_INPUT_IMAGE, &_srcNvVFXImage));
     BAIL_IF_ERR(vfxErr = NvVFX_SetImage(_eff, NVVFX_OUTPUT_IMAGE, &_dstNvVFXImage));
-    BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcNvVFXImage, 1.0f, _stream, NULL));
+    if (!FLAG_usePinnedMemory) {
+      BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_srcVFX, &_srcNvVFXImage, 1.0f, _stream, NULL));
+    }
 
     // Assign states from stateArray in batchOfStates
     // There is only one stream in this app
@@ -841,7 +868,9 @@ FXApp::Err FXApp::processMovie(const char* inFile, const char* outFile) {
       _total += ms;
     }
 
-    BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstNvVFXImage, &_dstVFX, 1.0f, _stream, NULL));
+    if (!FLAG_usePinnedMemory) {
+      BAIL_IF_ERR(vfxErr = NvCVImage_Transfer(&_dstNvVFXImage, &_dstVFX, 1.0f, _stream, NULL));
+    }
 
     result.create(_srcImg.rows, _srcImg.cols,
                   CV_8UC3);  // Make sure the result is allocated. TODO: allocate
@@ -964,9 +993,13 @@ bool isCompModeEnumValid(const FXApp::CompMode& mode) {
   return true;
 }
 
-int main(int argc, char** argv) {
+static int SamplesMain(int argc, char** argv) {
   int nErrs = 0;
   nErrs = ParseMyArgs(argc, argv);
+  if (nErrs == NVCV_ERR_HELP) {
+    Usage();
+    return 0;
+  }
   if (nErrs) {
     Usage();
     return nErrs;
@@ -1028,3 +1061,19 @@ int main(int argc, char** argv) {
   if (fxErr) std::cerr << "Error: " << app.errorStringFromCode(fxErr) << std::endl;
   return (int)fxErr;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t* wargv[]) {
+  std::vector<std::string> u8args(argc);
+  std::vector<char*> u8argv(argc);
+  for (int i = 0; i < argc; ++i) {
+    u8args[i] = WideToUtf8(wargv[i]);
+    u8argv[i] = &u8args[i][0];
+  }
+  return SamplesMain(argc, u8argv.data());
+}
+#else
+int main(int argc, char** argv) {
+  return SamplesMain(argc, argv);
+}
+#endif

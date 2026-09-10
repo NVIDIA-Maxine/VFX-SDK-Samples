@@ -178,6 +178,32 @@ on separate terminals or using utilities such as tmux.
 
 See README.md in each Triton client app directory for details on how to run the corresponding app.
 
+Windows on Arm (WoA, such as RTX Spark)
+---------------------------------------
+
+On **Windows on Arm (WoA, e.g. RTX Spark)**, the following sample apps support model runtime caching:
+
+- `AigsEffectApp` / `BatchAigsEffectApp` (AI Green Screen)
+- `RelightingEffectApp` (Relighting; also uses Green Screen for matte generation)
+- `DenoiseEffectApp` / `BatchDenoiseEffectApp` (Webcam Denoising)
+
+### Model cache (WoA only)
+
+On WoA, portable inference engines finish optimization on the device via JIT. The **first** load of each model can take about **~5 seconds per model** while a `.cache` file is written. Later launches reuse the cache and load much faster; inference quality is unchanged.
+
+- Default cache location: `{model_dir}/cache/`
+- Optional flags (WoA only, e.g. RTX Spark): `--cache_dir=<path>`, `--cache_mode={0|1|2}` where `0`=Auto (default), `1`=Disabled, `2`=ForceRegenerate
+
+See each app's README for the exact flag list.
+
+### Pinned memory (performance on WoA)
+
+Where exposed by a sample app:
+
+- `--use_pinned_memory` — allocates input/output images as `NVCV_CPU_PINNED`. On WoA (iGPU systems) the CPU and GPU share memory, so pinned buffers avoid unnecessary host↔device copies.
+
+Prefer this option for steady-state performance when running the corresponding samples on WoA.
+
 Common Issues
 -------------
 

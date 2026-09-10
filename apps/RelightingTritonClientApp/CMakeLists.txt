@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: MIT
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
@@ -22,7 +22,7 @@
 #############################
 # RelightingTritonClientApp #
 #############################
-set(REQUIRED_FEATURES nvVFXAIGSRelighting:1.2.0.0)
+set(REQUIRED_FEATURES nvVFXAIGSRelighting:1.3.0.0)
 foreach(REQUIRED_FEATURE_AND_VERSION IN LISTS REQUIRED_FEATURES)
   verify_app_feature_dependency(${REQUIRED_FEATURE_AND_VERSION} RESULT)
   if(NOT RESULT)
@@ -36,7 +36,8 @@ set(RUN_FILES
 
 set(SOURCE_FILES
   RelightingTritonClientApp.cpp
-  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.cpp)
+  ${VFXSDKSampleApps_UTILS_DIR}/batchUtilities.cpp
+  ${VFXSDKSampleApps_UTILS_DIR}/unicodeUtf8Utils.cpp)
 
 add_executable(RelightingTritonClientApp
   README.md
@@ -44,6 +45,8 @@ add_executable(RelightingTritonClientApp
 
 if(TARGET OpenCV)
   set(OPENCV OpenCV)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64|aarch64")
+  set(OPENCV opencv4120)
 else()
   set(OPENCV opencv346)
 endif()

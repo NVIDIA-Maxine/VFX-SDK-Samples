@@ -1,0 +1,20 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+# VideoSuperRes image example - upscales a single image
+
+OUTPUT_IMAGE=output_vsr_image.png
+rm -f "$OUTPUT_IMAGE"
+
+if ! ./VideoSuperResEffectApp \
+        --in_file=input_vsr_2.png \
+        --out_file="$OUTPUT_IMAGE" \
+        --resolution=1080 \
+        --mode=3; then
+    echo "VideoSuperResEffectApp image test failed."
+    rm -f "$OUTPUT_IMAGE"
+    exit 1
+fi
+
+echo "Output image: \"$OUTPUT_IMAGE\" was created successfully."

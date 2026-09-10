@@ -24,10 +24,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <iostream>
 #include <string>
+#include <vector>
 
 #include "batchUtilities.h"
 #include "nvCVOpenCV.h"
+#include "unicodeUtf8Utils.h"
 #include "nvVFXDenoising.h"
 #include "nvVideoEffects.h"
 #include "opencv2/opencv.hpp"
@@ -61,11 +64,13 @@
     err = code;         \
     goto bail;          \
   } while (0)
+#define NVCV_ERR_HELP 411
 
 bool FLAG_verbose = false;
 float FLAG_strength = 0.f;
 int FLAG_mode = 0, FLAG_resolution = 0, FLAG_batchSize = 8, FLAG_logLevel = NVCV_LOG_ERROR;
-std::string FLAG_outFile, FLAG_modelDir, FLAG_log = "stderr";
+std::string FLAG_outFile, FLAG_modelDir, FLAG_log = "stderr", FLAG_cacheDir;
+unsigned int FLAG_cacheMode = 0;
 std::vector<const char*> FLAG_inFiles;
 
 // Set this when using OTA Updates
@@ -108,21 +113,28 @@ static bool GetFlagArgVal(const char* flag, const char* arg, bool* val) {
 static bool GetFlagArgVal(const char* flag, const char* arg, float* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtof(valStr, NULL);
+  if (success && valStr) *val = strtof(valStr, NULL);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, long* val) {
   const char* valStr;
   bool success = GetFlagArgVal(flag, arg, &valStr);
-  if (success) *val = strtol(valStr, NULL, 10);
+  if (success && valStr) *val = strtol(valStr, NULL, 10);
   return success;
 }
 
 static bool GetFlagArgVal(const char* flag, const char* arg, int* val) {
-  long longVal;
-  bool success = GetFlagArgVal(flag, arg, &longVal);
-  if (success) *val = (int)longVal;
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (int)strtol(valStr, NULL, 10);
+  return success;
+}
+
+static bool GetFlagArgVal(const char* flag, const char* arg, unsigned* val) {
+  const char* valStr;
+  bool success = GetFlagArgVal(flag, arg, &valStr);
+  if (success && valStr) *val = (unsigned)strtoul(valStr, NULL, 10);
   return success;
 }
 
@@ -139,6 +151,8 @@ static void Usage() {
       "  --log=<file>          log SDK errors to a file, \"stderr\" or \"\" (default stderr)\n"
       "  --log_level=<N>       the desired log level: {0, 1, 2, 3} = {FATAL, ERROR, WARNING, INFO}, respectively "
       "(default 1)\n"
+      "  --cache_dir=<path>    Model cache directory (default: model_dir/cache) [WoA only, e.g. RTX Spark]\n"
+      "  --cache_mode=(0|1|2)  Model cache mode: 0=Auto, 1=Disabled, 2=ForceRegenerate (default 0) [WoA only, e.g. RTX Spark]\n"
       "  and inFile1 ... are identically sized video files\n");
 }
 
@@ -156,11 +170,12 @@ static int ParseMyArgs(int argc, char** argv) {
             GetFlagArgVal("out_file", arg, &FLAG_outFile) ||      //
             GetFlagArgVal("batch_size", arg, &FLAG_batchSize) ||  //
             GetFlagArgVal("log", arg, &FLAG_log) ||               //
-            GetFlagArgVal("log_level", arg, &FLAG_logLevel)) {
+            GetFlagArgVal("log_level", arg, &FLAG_logLevel) ||    //
+            GetFlagArgVal("cache_dir", arg, &FLAG_cacheDir) ||    //
+            GetFlagArgVal("cache_mode", arg, &FLAG_cacheMode)) {
           continue;
         } else if (GetFlagArgVal("help", arg, &help)) {  // --help
-          Usage();
-          errs = 1;
+          return NVCV_ERR_HELP;
         }
       } else {  // single dash
         for (++arg; *arg; ++arg) {
@@ -203,6 +218,9 @@ class App {
     BAIL_IF_ERR(err = AllocateBatchBuffer(&_dst, _batchSize, srcImg->width, srcImg->height, NVCV_BGR, NVCV_F32,
                                           NVCV_PLANAR, NVCV_CUDA, 1));                       // 
     BAIL_IF_ERR(err = NvVFX_SetString(_eff, NVVFX_MODEL_DIRECTORY, FLAG_modelDir.c_str()));  // 
+    if (!FLAG_cacheDir.empty())
+      BAIL_IF_ERR(err = NvVFX_SetString(_eff, NVVFX_MODEL_CACHE_DIRECTORY, FLAG_cacheDir.c_str()));
+    BAIL_IF_ERR(err = NvVFX_SetU32(_eff, NVVFX_MODEL_CACHE_MODE, FLAG_cacheMode));
 
     {  // Set parameters.
       NvCVImage nth;
@@ -325,12 +343,22 @@ bail:
   return err;
 }
 
-int main(int argc, char** argv) {
+static int SamplesMain(int argc, char** argv) {
   int nErrs;
   NvCV_Status vfxErr;
 
   nErrs = ParseMyArgs(argc, argv);
+  if (nErrs == NVCV_ERR_HELP) {
+    Usage();
+    return 0;
+  }
   if (nErrs) return nErrs;
+
+  if (!(FLAG_strength >= 0.0f && FLAG_strength <= 1.0f)) {
+    std::cerr << "--strength must be in the range [0.0, 1.0]\n";
+    Usage();
+    return (int)NVCV_ERR_PARAMETER;
+  }
 
   vfxErr = NvVFX_ConfigureLogger(FLAG_logLevel, FLAG_log.c_str(), nullptr, nullptr);
   if (NVCV_SUCCESS != vfxErr)
@@ -350,3 +378,19 @@ int main(int argc, char** argv) {
 
   return nErrs;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t* wargv[]) {
+  std::vector<std::string> u8args(argc);
+  std::vector<char*> u8argv(argc);
+  for (int i = 0; i < argc; ++i) {
+    u8args[i] = WideToUtf8(wargv[i]);
+    u8argv[i] = &u8args[i][0];
+  }
+  return SamplesMain(argc, u8argv.data());
+}
+#else
+int main(int argc, char** argv) {
+  return SamplesMain(argc, argv);
+}
+#endif

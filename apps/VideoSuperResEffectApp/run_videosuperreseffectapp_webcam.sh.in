@@ -1,0 +1,17 @@
+#!/bin/sh
+
+. ./setup_env.sh
+
+# VideoSuperRes webcam example - upscales live webcam feed
+
+if ! ./VideoSuperResEffectApp \
+        --cam_res=1280x720 \
+        --resolution=1080 \
+        --mode=1 \
+        --webcam \
+        --show; then
+    echo "VideoSuperResEffectApp webcam processing failed."
+    exit 1
+fi
+
+echo "VideoSuperResEffectApp webcam processing completed successfully."

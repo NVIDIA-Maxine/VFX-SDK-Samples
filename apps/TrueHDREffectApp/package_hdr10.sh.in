@@ -1,0 +1,101 @@
+#!/bin/sh
+# Package a headerless RGB10A2 .r10 into a playable HDR10-tagged HEVC .mp4 via
+# ffmpeg. ffmpeg is a SOFT dependency: if it is missing or too old this script
+# prints a single non-fatal warning and exits 5 (soft-skip), leaving the .r10
+# in place.
+#
+# Usage:
+#   package_hdr10.sh <r10_path> <width> <height> [framerate]
+#
+# Exit codes:
+#   0  packaged (.mp4 written, non-empty, HDR10-tagged)
+#   2  bad arguments
+#   3  missing or unreadable raw input .r10
+#   4  ffmpeg was invoked but the encode failed
+#   5  soft-skip: ffmpeg missing or too old (no .mp4 written)
+#
+# framerate defaults to 30; single-frame image outputs should pass 1 so the
+# still is held for ~1 s in HDR10 players.
+R10=$1
+W=$2
+H=$3
+FPS=${4:-30}
+
+# Name each missing mandatory arg explicitly
+missing=""
+[ -z "$R10" ] && missing="$missing r10_path"
+[ -z "$W" ]   && missing="$missing width"
+[ -z "$H" ]   && missing="$missing height"
+if [ -n "$missing" ]; then
+        echo "[package_hdr10] ERROR: missing required argument(s):$missing" >&2
+        echo "[package_hdr10] usage: package_hdr10.sh <r10_path> <width> <height> [framerate]" >&2
+        echo "[package_hdr10]   r10_path : path to the raw RGB10A2 .r10 produced by TrueHDREffectApp" >&2
+        echo "[package_hdr10]   width    : output frame width in pixels (must match the value TrueHDREffectApp wrote)" >&2
+        echo "[package_hdr10]   height   : output frame height in pixels (must match the value TrueHDREffectApp wrote)" >&2
+        echo "[package_hdr10]   framerate: optional, default 30. Use 1 for a single-frame image so HDR10 players hold it for ~1 s." >&2
+        exit 2
+fi
+if [ ! -r "$R10" ]; then
+        echo "[package_hdr10] ERROR: input .r10 not found or unreadable: $R10" >&2
+        echo "[package_hdr10]        (this is package_hdr10's mandatory input; TrueHDREffectApp was expected to write it)" >&2
+        exit 3
+fi
+if ! command -v ffmpeg >/dev/null 2>&1; then
+        echo "[package_hdr10] ffmpeg not on PATH; skipping HDR10-HEVC packaging (soft-skip, exit 5)."
+        echo "[package_hdr10] install ffmpeg >=5.0 (see README install instructions) and re-run"
+        echo "[package_hdr10] for a playable HDR10-tagged .mp4. Raw .r10 still available."
+        exit 5
+fi
+if ! ffmpeg -hide_banner -pix_fmts 2>/dev/null | awk '{print $2}' | grep -qx 'x2bgr10le'; then
+        FFMPEG_VER=$(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}')
+        echo "[package_hdr10] ffmpeg $FFMPEG_VER lacks pix_fmt x2bgr10le (need ffmpeg >=5.0);"
+        echo "[package_hdr10] skipping HDR10-HEVC packaging (soft-skip, exit 5). Raw .r10 still available at $R10."
+        echo "[package_hdr10] upgrade ffmpeg or run the recipe by hand on a host with ffmpeg >=5.0 (see README)."
+        exit 5
+fi
+
+# File-size sanity check
+BYTES_PER_FRAME=$(( W * H * 4 ))
+FILE_BYTES=$(wc -c < "$R10")
+if [ "$BYTES_PER_FRAME" -gt 0 ]; then
+        REMAINDER=$(( FILE_BYTES % BYTES_PER_FRAME ))
+        FRAME_COUNT=$(( FILE_BYTES / BYTES_PER_FRAME ))
+        if [ "$FRAME_COUNT" -eq 0 ]; then
+                echo "[package_hdr10] WARNING: $R10 is only $FILE_BYTES bytes but ${W}x${H} RGB10A2 needs >= $BYTES_PER_FRAME bytes/frame." >&2
+                echo "[package_hdr10]          Check that width/height match TrueHDREffectApp's actual output." >&2
+        elif [ "$REMAINDER" -ne 0 ]; then
+                echo "[package_hdr10] WARNING: $R10 is $FILE_BYTES bytes, not a whole multiple of ${W}x${H}x4=$BYTES_PER_FRAME bytes/frame ($FRAME_COUNT full frames + $REMAINDER trailing bytes)." >&2
+                echo "[package_hdr10]          If the resulting .mp4 looks garbled, verify width/height match what TrueHDREffectApp wrote." >&2
+        fi
+fi
+
+MP4="${R10%.r10}.mp4"
+[ "$MP4" = "$R10" ] && MP4="${R10}.mp4"
+
+# libx265 with yuv420p10le requires even width AND height (4:2:0 chroma). Pad
+# odd dimensions with at most 1 black pixel on the right/bottom so the encoder
+# accepts the frame; existing picture stays anchored at (0,0).
+if [ $(( W % 2 )) -ne 0 ] || [ $(( H % 2 )) -ne 0 ]; then
+        PADDED_W=$(( (W + 1) / 2 * 2 ))
+        PADDED_H=$(( (H + 1) / 2 * 2 ))
+        echo "[package_hdr10] odd dimensions ${W}x${H}: padding to ${PADDED_W}x${PADDED_H} for HEVC 4:2:0 alignment"
+fi
+
+echo "[package_hdr10] packaging $R10 (${W}x${H} @ ${FPS}fps) -> $MP4 via ffmpeg (HDR10-tagged HEVC)"
+ffmpeg -y -hide_banner -loglevel warning \
+        -f rawvideo -pixel_format x2bgr10le -video_size ${W}x${H} -framerate ${FPS} \
+        -i "$R10" \
+        -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2:0:0:black" \
+        -c:v libx265 -pix_fmt yuv420p10le \
+        -x265-params 'crf=20:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:hdr-opt=1' \
+        "$MP4"
+FFMPEG_RC=$?
+if [ "$FFMPEG_RC" -ne 0 ]; then
+        # ffmpeg may have opened "$MP4" for writing before failing, leaving a
+        # partial/unplayable file. Remove it so the exit-code contract
+        # ("exit 4 => no .mp4") is enforced and downstream tools don't pick
+        # up a corrupt output.
+        rm -f "$MP4"
+        echo "[package_hdr10] ERROR: ffmpeg failed (rc=$FFMPEG_RC); raw .r10 still available at $R10" >&2
+        exit 4
+fi
