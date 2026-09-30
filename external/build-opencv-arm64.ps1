@@ -17,6 +17,9 @@ Completed steps are skipped on re-runs unless -Force is passed.
 
 .EXAMPLE
 .\build-opencv-arm64.ps1 -Force -Generator "Visual Studio 17 2022"
+
+.EXAMPLE
+.\build-opencv-arm64.ps1 -Force -Generator "Visual Studio 18 2026"
 #>
 
 [CmdletBinding()]
@@ -109,6 +112,25 @@ function ConvertTo-CMakePath([string]$Path) {
     return $Path.Replace("\", "/")
 }
 
+# VC 17 (VS 2022) installs under ARM64\vc17\{bin,lib}. VC 18 installs under ARM64\{bin,lib}.
+function Resolve-OpenCvInstallBin {
+    param(
+        [string]$Prefix,
+        [string]$WorldDllName,
+        [string]$GeneratorName
+    )
+    $vc17Bin = Join-Path $Prefix "ARM64\vc17\bin"
+    $vc18Bin = Join-Path $Prefix "ARM64\bin"
+
+    # A VC 17 tree that was rebuilt with VC 18 (or the reverse) leaves both folders behind, so the
+    # requested generator decides which one wins.
+    $candidates = if ($GeneratorName -match "Visual Studio 17") { @($vc17Bin, $vc18Bin) } else { @($vc18Bin, $vc17Bin) }
+    foreach ($candidate in $candidates) {
+        if (Test-Path (Join-Path $candidate $WorldDllName)) { return $candidate }
+    }
+    throw "No $WorldDllName found under $Prefix. Expected ARM64\vc17\bin (VC 17) or ARM64\bin (VC 18). Check the build log above."
+}
+
 Assert-Arm64Host
 
 Push-Location $PSScriptRoot
@@ -125,8 +147,6 @@ try {
     $installDir = Join-Path $PSScriptRoot "install-opencv"
     $ffmpegDir  = Join-Path $PSScriptRoot "ffmpeg-arm64"
     $moduleDir  = Join-Path $PSScriptRoot "cmake-modules"
-    $deployRoot = Join-Path $PSScriptRoot "opencv\arm64"
-    $deployBin  = Join-Path $deployRoot "bin"
     $worldLib   = "opencv_world" + ($OpenCvVersion -replace '\.', '')
 
     ############################################################################
@@ -211,7 +231,7 @@ try {
         $configureLog = Invoke-Native cmake $cmakeArgs
 
         if ($configureLog -match "Hostx86[/\\]arm64") {
-            throw "CMake fell back to the Hostx86 toolchain. Install 'MSVC v143 - VS 2022 C++ ARM64/ARM64EC build tools' in the Visual Studio Installer, then re-run with -Force."
+            throw "CMake fell back to the Hostx86 toolchain. Install the ARM64-hosted MSVC tools (v143 for VS 2022 / v145 for VS 18) in the Visual Studio Installer, then re-run with -Force."
         }
         if ($configureLog -notmatch "HostARM64[/\\]arm64") {
             Write-Warning "Could not confirm the HostARM64 compiler in the configure output. Check the 'Check for working CXX compiler' line above."
@@ -226,10 +246,8 @@ try {
     ############################################################################
     Invoke-Native cmake @("--build", $buildDir, "--config", "Release", "--target", "INSTALL", "--parallel") | Out-Null
 
-    $installBin = Join-Path $installDir "bin"
-    if (-not (Test-Path $installBin)) {
-        throw "No install output at $installBin. Check the build log above."
-    }
+    $installBin = Resolve-OpenCvInstallBin -Prefix $installDir -WorldDllName "$worldLib.dll" -GeneratorName $Generator
+    $deployBin  = Join-Path $PSScriptRoot "opencv\arm64\bin"
     $pluginName   = "opencv_videoio_ffmpeg.dll"
     $pluginVerName = "opencv_videoio_ffmpeg4120.dll"
     $worldDll = Join-Path $installBin "$worldLib.dll"
@@ -260,7 +278,7 @@ try {
     if (Test-Path $deployPlugin) {
         Move-Item -Path $deployPlugin -Destination $deployPluginVer -Force
     } elseif (-not (Test-Path $deployPluginVer)) {
-        throw "Expected $pluginName or $pluginVerName in $deployBin after copy."
+        throw "Expected $pluginName or $pluginVerName in $deployBin after copying from $installBin."
     }
 
     Write-Host ""

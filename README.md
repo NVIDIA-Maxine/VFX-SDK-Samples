@@ -244,6 +244,42 @@ The video codec error message from OpenCV when running the applications in offli
 "Could not open codec 'libopenh264': Unspecified error"
 "OpenCV: FFMPEG: tag 0x34363248/'H264' is not supported with codec id 27 and format 'mp4 / MP4 (MPEG-4 Part 14)'"
 
+### Color banding or flickering on Windows on Arm (OpenCV Media Foundation)
+
+On **Windows on Arm** (for example RTX Spark), webcam or file playback can show **horizontal color bands, chroma flicker, a green/magenta tint, or blocky artifacts that appear between keyframes**. This is an OpenCV **video I/O backend** issue, not a VFX SDK processing issue. Frames look correct in other players, and the same content is typically clean on Windows x64 or Linux.
+
+On Windows, `cv::VideoCapture` defaults to the **Microsoft Media Foundation (MSMF)** backend (`CAP_MSMF`). MSMF decodes YUV (often NV12) and converts to BGR through Media Foundation color converters and, by default, **hardware Media Foundation transforms**. That path is a frequent source of wrong colors and capture glitches:
+
+- [opencv/opencv#16957](https://github.com/opencv/opencv/issues/16957) — MSMF returns a corrupted/wrong image; **DirectShow (`CAP_DSHOW`) is clean**. Maintainers pointed at MSMF hardware-accelerated conversion (`CAP_PROP_MODE = 0` to disable it).
+- [opencv/opencv#17687](https://github.com/opencv/opencv/issues/17687) — MSMF hardware transforms are unreliable; OpenCV added `OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS=0` to turn them off (see also the [OpenCV `CAP_MSMF` notes](https://docs.opencv.org/4.x/d4/d15/group__videoio__flags__base.html) and [MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS](https://learn.microsoft.com/en-us/windows/win32/medfound/mf-readwrite-enable-hardware-transforms)).
+- [Media Foundation H.264 decoder artifacts](https://stackoverflow.com/questions/41546721/media-foundation-webcam-video-h264-encode-decode-produces-artifacts-when-played) — decoded frames degrade between keyframes (banding / blocky chroma) and recover on the next IDR. That matches a Media Foundation decoder/converter problem rather than the VFX effect.
+
+**Preferred fix for video files:** use OpenCV’s **FFmpeg backend** (`CAP_FFMPEG`) instead of MSMF. FFmpeg performs decode and YUV→BGR conversion independently of Media Foundation.
+
+Official OpenCV **does not ship an ARM64 FFmpeg plugin** ([opencv/opencv#27399](https://github.com/opencv/opencv/issues/27399)); a default WoA OpenCV build therefore falls back to MSMF even when FFmpeg is requested. These samples already document how to build OpenCV 4.12 with a native ARM64 FFmpeg plugin (`opencv_videoio_ffmpeg4120.dll`). Follow [`external/README.md`](external/README.md) or run:
+
+```powershell
+cd external
+.\build-opencv-arm64.ps1
+```
+
+Confirm at runtime that the plugin loaded (not MSMF):
+
+```powershell
+$env:OPENCV_VIDEOIO_DEBUG = "1"
+$env:OPENCV_LOG_LEVEL = "DEBUG"
+```
+
+The FFmpeg `av*.dll` files must sit next to `opencv_world4120.dll` / `opencv_videoio_ffmpeg4120.dll`. If they are missing, OpenCV silently stays on MSMF. See also the FFmpeg notes in the Video Super Resolution and Video Frame Generation sample READMEs.
+
+**If you must stay on MSMF**, disable hardware transforms before launching the app:
+
+```powershell
+$env:OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS = "0"
+```
+
+**For webcam input**, try DirectShow instead of MSMF. DirectShow is often cleaner than MSMF; it is not always available or complete on every WoA SKU, in which case disable MSMF hardware transforms as above.
+
 Documentation
 -------------
 

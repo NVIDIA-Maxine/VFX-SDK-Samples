@@ -67,6 +67,13 @@ On Windows on Arm (WoA, e.g. RTX Spark), the first model load incurs a one-time 
 
 Prefer `--use_pinned_memory` on WoA (iGPU systems) for better steady-state transfer performance.
 
+On WoA, the Denoising feature is supported only at 1920x1080 (1080p) input resolution. Other resolutions, such as 1280x720 or 640x480, can produce visible flickering in the output.
+Because the default webcam resolution may not be 1920x1080, pass `--cam_res=1920x1080` when using `--webcam`, and use 1080p input for video files. For example:
+
+```
+DenoiseEffectApp.exe --model_dir=<path_to_models> --webcam --cam_res=1920x1080 --show
+```
+
 Keyboard Controls
 -----------------
 
